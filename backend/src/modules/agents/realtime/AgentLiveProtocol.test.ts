@@ -37,16 +37,16 @@ describe("agentLiveFrameSchema", () => {
     expect(parsed.success).toBe(true);
   });
 
-  // 探针自升级有滞后，服务端先部署时旧探针还在发 v1 单点帧。
-  // 这条断言掉了就意味着升级窗口内所有旧探针的实时链路全断。
-  it("继续接受 v1 单点帧", () => {
+  // v1.4.2 起不再接受 v1 单点帧（升级窗口已关闭）。留这条是为了让"重新放开
+  // v1"成为一个显式决定，而不是某次改 schema 时悄悄溜回来。
+  it("拒绝已下线的 v1 单点帧", () => {
     const parsed = agentLiveFrameSchema.safeParse({
       type: "metric",
       protocol_version: 1,
       sequence: 3,
       ...payload(0),
     });
-    expect(parsed.success).toBe(true);
+    expect(parsed.success).toBe(false);
   });
 
   it("拒绝空批次——空帧只会白白消耗一次请求", () => {
@@ -108,20 +108,6 @@ describe("liveFrameToBroadcastUpdate", () => {
     expect(update.status).toBe("active");
     expect(update.lastSeenAt).toBe(payload(2).collected_at);
     expect(update.changedAt).toBe(payload(2).collected_at);
-  });
-
-  it("v1 单点帧仍然映射成单样本更新", () => {
-    const parsed = agentLiveFrameSchema.parse({
-      type: "metric",
-      protocol_version: 1,
-      sequence: 3,
-      ...payload(5),
-    });
-    const update = liveFrameToBroadcastUpdate(42, parsed);
-
-    expect(update.samples).toHaveLength(1);
-    expect(update.samples[0].data.cpu_usage).toBe(5);
-    expect(update.lastSeenAt).toBe(payload(5).collected_at);
   });
 
   it("匿名状态页投影按样本各自生成", () => {

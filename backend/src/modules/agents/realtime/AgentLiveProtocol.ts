@@ -96,25 +96,18 @@ const liveMetricPayloadSchema = z.object(liveMetricPayloadShape).strict();
 const liveSequence = z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER);
 
 /**
- * v1：一帧一个采样点。探针自升级有滞后，旧探针还会发这种帧，必须继续接受。
- */
-export const agentLiveMetricFrameSchema = z
-  .object({
-    type: z.literal("metric"),
-    protocol_version: z.literal(1),
-    sequence: liveSequence,
-    ...liveMetricPayloadShape,
-  })
-  .strict();
-
-/**
- * v2：一帧承载一个攒批窗口内的全部采样点。
+ * 实时上行帧：一帧承载一个攒批窗口内的全部采样点。
  *
  * Durable Object 的每条入站 WebSocket 消息都单独计一次 Worker 请求，秒级一帧
  * 时单台探针就是 86400 次/天。攒批只增加实时视图延迟，批内仍是逐秒样本。
  * samples 上限与 MAX_REPORT_SAMPLES 对齐，探针侧 maxBatchSamples 必须相同。
+ *
+ * v1.4.0 的升级窗口期间这里还并行接受过 v1 的单点帧
+ * （{type:"metric", protocol_version:1, ...一个采样点}）。存量探针升完之后
+ * 已无人再发，v1.4.2 起只认攒批帧——旧探针的实时链路会被 close(1008)，
+ * 但历史上报不受影响（那条走 HTTP，与实时通道完全独立）。
  */
-export const agentLiveMetricBatchSchema = z
+export const agentLiveFrameSchema = z
   .object({
     type: z.literal("metric_batch"),
     protocol_version: z.literal(2),
@@ -122,11 +115,6 @@ export const agentLiveMetricBatchSchema = z
     samples: z.array(liveMetricPayloadSchema).min(1).max(MAX_REPORT_SAMPLES),
   })
   .strict();
-
-export const agentLiveFrameSchema = z.discriminatedUnion("type", [
-  agentLiveMetricFrameSchema,
-  agentLiveMetricBatchSchema,
-]);
 
 export type AgentLiveMetricPayload = z.infer<typeof liveMetricPayloadSchema>;
 export type AgentLiveFrame = z.infer<typeof agentLiveFrameSchema>;
@@ -196,7 +184,7 @@ function payloadToBroadcastSample(
 }
 
 /**
- * 把 v1 单点帧或 v2 批次帧统一映射成一次广播更新。
+ * 把一个攒批帧映射成一次广播更新。
  *
  * 批次内保持探针的采集顺序，状态字段取批内最后一个采样点——它才是"最新"。
  */
@@ -204,8 +192,7 @@ export function liveFrameToBroadcastUpdate(
   agentId: number,
   frame: AgentLiveFrame
 ): BroadcastUpdate {
-  const payloads: AgentLiveMetricPayload[] =
-    frame.type === "metric_batch" ? frame.samples : [frame];
+  const payloads: AgentLiveMetricPayload[] = frame.samples;
   const latest = payloads[payloads.length - 1];
   return {
     agentId,
