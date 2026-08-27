@@ -439,11 +439,10 @@ export class AgentRoom extends DurableObject {
     const value = socket.deserializeAttachment();
     if (!value || typeof value !== "object") return null;
     const record = value as Record<string, unknown>;
-    // kind 缺失时兼容部署前仍由 Hibernation 保存的浏览器连接附件。
-    if (
-      (record.kind !== undefined && record.kind !== "subscriber") ||
-      !Array.isArray(record.agentIds)
-    ) {
+    // 曾经放宽过 kind 缺失的情况，用于兼容「引入 kind 字段那次部署之前就已
+    // Hibernate 的浏览器连接」。此后每次 Worker 换版本都会把所有 WebSocket
+    // 连接断开（客户端看到 1006），那批附件不可能还存在，判定收紧回严格相等。
+    if (record.kind !== "subscriber" || !Array.isArray(record.agentIds)) {
       return null;
     }
     const agentIds = record.agentIds
@@ -493,7 +492,6 @@ export class AgentRoom extends DurableObject {
       socket.close(1008, "invalid live metric json");
       return;
     }
-    // v1 单点帧与 v2 攒批帧同时接受：探针自升级有滞后，两种探针会并存一段时间。
     const parsed = agentLiveFrameSchema.safeParse(decoded);
     if (!parsed.success) {
       socket.close(1008, "invalid live metric frame");

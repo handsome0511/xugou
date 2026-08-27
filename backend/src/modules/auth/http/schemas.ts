@@ -20,6 +20,3 @@ export const adminPasswordChangeSchema = z
   })
   .strict();
 
-export function legacyBadRequest(message: string) {
-  return { success: false, message };
-}

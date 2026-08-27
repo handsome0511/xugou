@@ -2,7 +2,7 @@ import { Hono } from "hono";
 import { AuthVariables } from "../../../types";
 import { createAuthUseCases } from "../composition";
 import { Bindings } from "../../../models/db";
-import { authCredentialsSchema, legacyBadRequest } from "./schemas";
+import { authCredentialsSchema } from "./schemas";
 import {
   createAdminSession,
   revokeAdminSession,
@@ -45,10 +45,7 @@ auth.post("/login", async (c) => {
       await c.req.json().catch(() => null)
     );
     if (!parsed.success) {
-      if (isV2ApiRequest(c)) {
-        return authProblem(c, 400, "VALIDATION_ERROR", "Request validation failed");
-      }
-      return c.json(legacyBadRequest("登录参数无效"), 400);
+      return authProblem(c, 400, "VALIDATION_ERROR", "Request validation failed");
     }
 
     const { username, password } = parsed.data;

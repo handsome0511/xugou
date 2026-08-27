@@ -4,7 +4,6 @@ import type { AuthVariables } from "../../../types";
 import {
   adminPasswordChangeSchema,
   adminProfileUpdateSchema,
-  legacyBadRequest,
 } from "./schemas";
 import {
   changeAdminPassword,
@@ -56,14 +55,11 @@ profile.put("/", async (c) => {
     await c.req.json().catch(() => null)
   );
   if (!parsed.success) {
-    if (isV2ApiRequest(c)) {
-      return problemResponse(c, {
-        status: 400,
-        code: "VALIDATION_ERROR",
-        title: "Request validation failed",
-      });
-    }
-    return c.json(legacyBadRequest("资料更新参数无效"), 400);
+    return problemResponse(c, {
+      status: 400,
+      code: "VALIDATION_ERROR",
+      title: "Request validation failed",
+    });
   }
 
   const result = await updateAdminProfile(c.env, admin.id, parsed.data);
@@ -92,14 +88,11 @@ profile.post("/change-password", async (c) => {
     await c.req.json().catch(() => null)
   );
   if (!parsed.success) {
-    if (isV2ApiRequest(c)) {
-      return problemResponse(c, {
-        status: 400,
-        code: "VALIDATION_ERROR",
-        title: "Request validation failed",
-      });
-    }
-    return c.json(legacyBadRequest("密码参数无效"), 400);
+    return problemResponse(c, {
+      status: 400,
+      code: "VALIDATION_ERROR",
+      title: "Request validation failed",
+    });
   }
 
   const result = await changeAdminPassword(c.env, admin.id, {
