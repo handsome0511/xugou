@@ -1,0 +1,1 @@
+CREATE INDEX `agent_metric_blocks_age_idx` ON `agent_metric_blocks` (`bucket_start`);

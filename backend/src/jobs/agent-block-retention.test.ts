@@ -97,6 +97,22 @@ describe("pruneAgedAgentBlocks", () => {
     expect(result.deleted).toBe(1);
     expect(remainingBucketStarts()).toEqual([NOW_SEC - 3600]);
   });
+
+  // 这条 DELETE 每分钟都跑，成本必须与「删掉多少行」成正比，而不是与表有多大成正比。
+  // 它曾经退化成全表扫描：稳态 1 万块时一天白读 1500 万行，3 台设备就把 D1 免费额度
+  // 打到三倍——而上面两条功能测试全绿，因为它确实删对了行，只是顺带读了整张表。
+  // 所以这里断言的是访问路径，不是结果。
+  it("按年龄删除必须走索引，不能退化成全表扫描", () => {
+    const plan = sqlite.raw
+      .prepare(
+        `EXPLAIN QUERY PLAN DELETE FROM agent_metric_blocks WHERE bucket_start < ?`
+      )
+      .all(NOW_SEC) as { detail: string }[];
+    const detail = plan.map((row) => row.detail).join(" / ");
+
+    expect(detail).toContain("USING INDEX agent_metric_blocks_age_idx");
+    expect(detail).not.toContain("SCAN agent_metric_blocks");
+  });
 });
 
 describe("enforceAgentBlockBudget", () => {

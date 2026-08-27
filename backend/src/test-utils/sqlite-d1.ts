@@ -122,6 +122,8 @@ CREATE UNIQUE INDEX agent_metric_blocks_key_idx
   ON agent_metric_blocks (agent_id, resolution, bucket_start);
 CREATE INDEX agent_metric_blocks_gc_idx
   ON agent_metric_blocks (resolution, bucket_start);
+CREATE INDEX agent_metric_blocks_age_idx
+  ON agent_metric_blocks (bucket_start);
 CREATE TABLE settings (key TEXT PRIMARY KEY, value TEXT);
 `;
 

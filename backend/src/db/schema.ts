@@ -467,6 +467,10 @@ export const agentMetricBlocks = sqliteTable(
       table.resolution,
       table.bucket_start
     ),
+    // 按年龄回收只按 bucket_start 过滤、跨所有 resolution，用不上前导列是
+    // resolution 的 gcIdx。少了这条索引，每分钟那条 DELETE 就是一次全表扫描：
+    // 10 k 块时一天白读 1500 万行，是免费额度的三倍。
+    ageIdx: index("agent_metric_blocks_age_idx").on(table.bucket_start),
   })
 );
 

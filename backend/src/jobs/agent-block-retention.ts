@@ -39,7 +39,12 @@ export function agentBlockRetentionConfig(env: Bindings) {
 }
 
 /**
- * 规则 1：按年龄删除。走 (resolution, bucket_start) 的 gc 索引，成本低，每个 tick 都跑。
+ * 规则 1：按年龄删除。走 (bucket_start) 的 age 索引，成本低，每个 tick 都跑。
+ *
+ * 索引前导列必须就是 bucket_start——这里跨所有 resolution 删，用不上 gc 索引的
+ * (resolution, bucket_start)。曾经误以为能复用 gc 索引，实际是每分钟一次全表扫描：
+ * 稳态 10 k 块时一天白读 1500 万行，3 台设备就把 D1 免费额度打到三倍。
+ * 改这条 WHERE 之前先跑 EXPLAIN QUERY PLAN，确认输出是 SEARCH 而不是 SCAN。
  */
 export async function pruneAgedAgentBlocks(
   env: Bindings,
