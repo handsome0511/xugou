@@ -8,18 +8,16 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
-	"strconv"
 	"strings"
 
 	"gopkg.in/yaml.v3"
 )
 
-// 配置下发协议常量（对齐 CF-Server-Monitor AGENT_CONFIG.md 的协议形态）。
-// v3 在 v2 三键基础上引入可选的 update 指令键（0/1）：仅作为服务端触发自升级的
-// 指令通道，不参与本地 MD5 计算（规范化串仍只含三键）、不落配置文件。
+// 上报请求头常量。SchemaVersion 与 MD5 头仍随每次上报发出，供服务端识别客户端
+// 声明的协议版本；v2/v3 那套 application/x-www-form-urlencoded 的配置串下发已被
+// 上报响应里的 JSON 取代，对应的 ParseRemoteConfig 与键白名单已删除。
 const (
 	SchemaVersion      = 3
-	MinSchemaVersion   = 2
 	HeaderConfigSchema = "X-Agent-Config-Schema"
 	HeaderConfigMd5    = "X-Agent-Config-Md5"
 	// HeaderAgentVersion 上报请求携带的探针自身版本（服务端据此判断是否下发 update=1）
@@ -32,25 +30,7 @@ const (
 	// 实时攒批间隔只是本地参数，不参与配置下发协议，因此不进规范化串与 MD5。
 	MinLiveInterval = 1
 	MaxLiveInterval = 300
-
-	// maxConfigBodyBytes 服务端下发配置串的最大长度，超出整体丢弃
-	maxConfigBodyBytes = 512
 )
-
-// allowedConfigKeys 键白名单：协议刻意不含 secret/URL/命令类字段，白名单外一律拒绝
-var allowedConfigKeys = map[string]struct{}{
-	"collect_interval": {},
-	"report_interval":  {},
-	"schema_version":   {},
-	"update":           {},
-}
-
-// requiredConfigKeys 必须出现的键（update 为 v3 可选指令键）
-var requiredConfigKeys = []string{
-	"collect_interval",
-	"report_interval",
-	"schema_version",
-}
 
 // RemoteConfig 服务端下发并通过整体校验后的配置
 type RemoteConfig struct {
@@ -145,69 +125,6 @@ func MD5Hex(s string) string {
 // CurrentConfigMD5 计算当前内存配置的规范化 MD5（随配置热更新自动变化）
 func CurrentConfigMD5() string {
 	return MD5Hex(NormalizedConfigString(CollectInterval, ReportInterval))
-}
-
-// ParseRemoteConfig 解析并整体校验服务端下发的 application/x-www-form-urlencoded 配置串。
-// 任何一处不合法（超长、未知键、重复键、换行/空格/百分号编码、值域越界）都整体丢弃。
-func ParseRemoteConfig(body string) (*RemoteConfig, error) {
-	if body == "" {
-		return nil, errors.New("配置串为空")
-	}
-	if len(body) > maxConfigBodyBytes {
-		return nil, fmt.Errorf("配置串超过 %d 字节: %d", maxConfigBodyBytes, len(body))
-	}
-	if strings.ContainsAny(body, " \t\r\n") {
-		return nil, errors.New("配置串包含空白字符")
-	}
-	if strings.Contains(body, "%") {
-		return nil, errors.New("配置串不接受百分号编码")
-	}
-
-	values := make(map[string]int, len(allowedConfigKeys))
-	for pair := range strings.SplitSeq(body, "&") {
-		key, rawValue, found := strings.Cut(pair, "=")
-		if !found || key == "" || rawValue == "" {
-			return nil, fmt.Errorf("非法键值对: %q", pair)
-		}
-		if _, allowed := allowedConfigKeys[key]; !allowed {
-			return nil, fmt.Errorf("未知配置键: %q", key)
-		}
-		if _, dup := values[key]; dup {
-			return nil, fmt.Errorf("重复配置键: %q", key)
-		}
-		value, err := strconv.Atoi(rawValue)
-		if err != nil {
-			return nil, fmt.Errorf("配置键 %q 的值不是整数: %q", key, rawValue)
-		}
-		values[key] = value
-	}
-
-	for _, key := range requiredConfigKeys {
-		if _, ok := values[key]; !ok {
-			return nil, fmt.Errorf("缺少配置键: %q", key)
-		}
-	}
-
-	// 兼容 v2/v3：服务端回填客户端声明的版本，此处接受两者
-	schema := values["schema_version"]
-	if schema < MinSchemaVersion || schema > SchemaVersion {
-		return nil, fmt.Errorf("schema_version 不匹配: %d", schema)
-	}
-	if err := ValidateIntervals(values["collect_interval"], values["report_interval"]); err != nil {
-		return nil, err
-	}
-
-	// update 为可选指令键，仅接受 0/1
-	update, hasUpdate := values["update"]
-	if hasUpdate && update != 0 && update != 1 {
-		return nil, fmt.Errorf("update 键的值非法: %d", update)
-	}
-
-	return &RemoteConfig{
-		CollectInterval: values["collect_interval"],
-		ReportInterval:  values["report_interval"],
-		Update:          hasUpdate && update == 1,
-	}, nil
 }
 
 // PersistIntervals 将采集/上报间隔原子写入 YAML 配置文件：

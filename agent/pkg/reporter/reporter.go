@@ -181,33 +181,6 @@ func parseV4ConfigResponse(resp *http.Response) *config.RemoteConfig {
 	}
 }
 
-// parseConfigResponse 解析上报响应中的配置下发：
-// 204 表示配置无变化；200 + application/x-www-form-urlencoded 为新配置串，
-// 整体校验失败时丢弃并继续使用旧配置（下次上报会重新获取）；其余响应（旧协议 JSON）忽略。
-func parseConfigResponse(resp *http.Response) *config.RemoteConfig {
-	if resp.StatusCode == http.StatusNoContent {
-		return nil
-	}
-	contentType := resp.Header.Get("Content-Type")
-	if resp.StatusCode != http.StatusOK ||
-		!strings.HasPrefix(contentType, "application/x-www-form-urlencoded") {
-		return nil
-	}
-
-	body, err := io.ReadAll(io.LimitReader(resp.Body, 1024))
-	if err != nil {
-		log.Println("读取配置下发响应失败: ", err)
-		return nil
-	}
-
-	remote, err := config.ParseRemoteConfig(strings.TrimSpace(string(body)))
-	if err != nil {
-		log.Println("服务端下发配置校验失败，已整体丢弃: ", err)
-		return nil
-	}
-	return remote
-}
-
 func (r *DefaultReporter) register(ctx context.Context, report *model.AgentReport) error {
 
 	log.Println("开始检查是否客户端已经注册，未注册将会自动注册")
