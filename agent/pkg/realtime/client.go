@@ -1,7 +1,11 @@
 // Package realtime 提供 Agent 到 Worker 的独立上行 WebSocket。
 //
-// WebSocket 只传递最新实时样本；断线期间不在内存堆积历史帧。完整样本仍由
-// 调用方先写入本地 spool，并按固定周期通过 HTTP 批量投递。
+// 采集节奏与发送节奏是解耦的：每次采集都进缓冲，但每 live-interval 才发一批，
+// 且只在服务端说「有人在看」时才发。发送频率必须与采集间隔无关——Durable
+// Object 的每条入站 WebSocket 消息都单独计一次 Worker 请求，秒级一帧时单台
+// 探针就是 86400 次/天，而其中绝大多数帧是推给空房间的。
+// 暂停与断线期间缓冲照常写入但有界，超出丢最旧的样本；完整历史仍由调用方先
+// 写入本地 spool，并按固定周期通过 HTTP 批量投递，不受实时通道任何影响。
 package realtime
 
 import (
@@ -22,23 +26,47 @@ import (
 )
 
 const (
-	liveProtocolVersion = 1
+	liveProtocolVersion = 2
 	reconnectMinDelay   = time.Second
 	reconnectMaxDelay   = 30 * time.Second
 	pingInterval        = 25 * time.Second
 	writeTimeout        = 5 * time.Second
 	readLimitBytes      = 64 * 1024
+
+	// DefaultLiveInterval 是攒批发送的默认间隔。12 秒把单台探针的实时链路
+	// 从 86400 次/天压到 7200 次/天，代价只是实时视图最多晚 12 秒。
+	DefaultLiveInterval = 12 * time.Second
+
+	// maxBatchBytes 单批序列化上限。服务端 MAX_LIVE_FRAME_BYTES 是 64 KB，
+	// 这里只用一半：网卡多的机器提前发一批，而不是把帧顶到被 close(1009)。
+	maxBatchBytes = 32 * 1024
+
+	// maxBatchSamples 单批样本数上限，必须与服务端 MAX_REPORT_SAMPLES 一致，
+	// 超出会被 zod 判为非法帧并 close(1008)。
+	maxBatchSamples = 100
 )
+
+// pendingSample 缓存样本及其序列化后的字节数，避免攒批时反复 Marshal 估算体积。
+type pendingSample struct {
+	sample *model.LiveMetricSample
+	bytes  int
+}
 
 // Client 维护单条可自动重连的上行连接。Publish 始终为非阻塞调用。
 type Client struct {
 	serverURL    string
 	token        string
 	agentVersion string
+	liveInterval time.Duration
 	dialer       websocket.Dialer
 
+	// flush 让「缓冲触顶」和「恢复推流」能立刻打断攒批窗口，容量 1 且只做非阻塞投递。
+	flush chan struct{}
+
 	mu             sync.Mutex
-	latest         chan *model.LiveMetricFrame
+	streaming      bool
+	pending        []pendingSample
+	pendingBytes   int
 	sequence       uint64
 	previousAt     time.Time
 	previousRx     uint64
@@ -47,7 +75,11 @@ type Client struct {
 }
 
 // NewClient 根据 Agent 的 HTTP Server URL 构造对应的 ws/wss 上行客户端。
-func NewClient(serverURL, token, agentVersion, proxyURL string) (*Client, error) {
+// liveInterval <= 0 时退回 DefaultLiveInterval。
+func NewClient(
+	serverURL, token, agentVersion, proxyURL string,
+	liveInterval time.Duration,
+) (*Client, error) {
 	if _, err := buildWebSocketURL(serverURL); err != nil {
 		return nil, err
 	}
@@ -62,12 +94,19 @@ func NewClient(serverURL, token, agentVersion, proxyURL string) (*Client, error)
 		}
 		dialer.Proxy = http.ProxyURL(proxy)
 	}
+	if liveInterval <= 0 {
+		liveInterval = DefaultLiveInterval
+	}
 	return &Client{
 		serverURL:    serverURL,
 		token:        token,
 		agentVersion: agentVersion,
+		liveInterval: liveInterval,
 		dialer:       dialer,
-		latest:       make(chan *model.LiveMetricFrame, 1),
+		flush:        make(chan struct{}, 1),
+		// 默认常开：服务端不支持按需推流（或指令丢了）时宁可多发，也不能静默。
+		// 状态跨重连保留，避免暂停期间每次重连都先倒一批没人看的数据出去。
+		streaming: true,
 	}, nil
 }
 
@@ -92,13 +131,13 @@ func buildWebSocketURL(serverURL string) (string, error) {
 	return base.String(), nil
 }
 
-// Publish 生成一条实时帧并用最新值覆盖尚未发出的旧帧。网络状态不会阻塞采集。
+// Publish 把一次采集追加进待发缓冲，由发送循环按 live-interval 攒批发出。
+// 网络状态不会阻塞采集：缓冲有界，满了丢最旧的样本而不是阻塞调用方。
 func (c *Client) Publish(info *model.SystemInfo) {
 	if info == nil {
 		return
 	}
 	c.mu.Lock()
-	c.sequence++
 	rx, tx, hasNetwork := sumNetworkTotals(info.Network)
 	var rxSpeed, txSpeed *float64
 	if hasNetwork && c.hasPreviousNet && info.Timestamp.After(c.previousAt) {
@@ -118,30 +157,134 @@ func (c *Client) Publish(info *model.SystemInfo) {
 		c.previousTx = tx
 		c.hasPreviousNet = true
 	}
-	frame := &model.LiveMetricFrame{
-		Type:            "metric",
-		ProtocolVersion: liveProtocolVersion,
-		Sequence:        c.sequence,
-		CollectedAt:     info.Timestamp.UTC().Format(time.RFC3339Nano),
-		CPU:             info.CPU,
-		Memory:          info.Memory,
-		Load:            info.Load,
-		Network:         append([]model.NetworkInfo(nil), info.Network...),
-		Swap:            info.Swap,
-		NetworkRxSpeed:  rxSpeed,
-		NetworkTxSpeed:  txSpeed,
+	sample := &model.LiveMetricSample{
+		CollectedAt:    info.Timestamp.UTC().Format(time.RFC3339Nano),
+		CPU:            info.CPU,
+		Memory:         info.Memory,
+		Load:           info.Load,
+		Network:        append([]model.NetworkInfo(nil), info.Network...),
+		Swap:           info.Swap,
+		NetworkRxSpeed: rxSpeed,
+		NetworkTxSpeed: txSpeed,
+	}
+	payload, err := json.Marshal(sample)
+	if err != nil {
+		c.mu.Unlock()
+		log.Printf("序列化实时样本失败，跳过本轮实时发布: %v", err)
+		return
+	}
+	// 单个样本就超过整批上限的机器发不出去（服务端会判非法帧并断连），
+	// 与其让整条连接反复重连，不如在这里就放弃这一个样本。
+	if len(payload) > maxBatchBytes {
+		c.mu.Unlock()
+		log.Printf("实时样本 %d 字节超过单批上限 %d，跳过", len(payload), maxBatchBytes)
+		return
 	}
 
-	select {
-	case c.latest <- frame:
-	default:
-		select {
-		case <-c.latest:
-		default:
-		}
-		c.latest <- frame
-	}
+	c.pending = append(c.pending, pendingSample{sample: sample, bytes: len(payload)})
+	c.pendingBytes += len(payload)
+	c.trimPendingLocked()
+	// 缓冲已经能装满一批，不必等攒批窗口走完。暂停期间缓冲长期处于满档，
+	// 这里不加 streaming 判断的话每次采集都会白白唤醒一次发送循环。
+	overflow := c.streaming &&
+		(c.pendingBytes >= maxBatchBytes || len(c.pending) >= maxBatchSamples)
 	c.mu.Unlock()
+
+	if overflow {
+		c.signalFlush()
+	}
+}
+
+// trimPendingLocked 丢弃超出容量的最旧样本。实时通道只负责「新」，
+// 断线期间的历史由 spool + HTTP 批量补齐，堆在内存里没有意义。
+func (c *Client) trimPendingLocked() {
+	for len(c.pending) > maxBatchSamples {
+		c.pendingBytes -= c.pending[0].bytes
+		c.pending = c.pending[1:]
+	}
+}
+
+func (c *Client) signalFlush() {
+	select {
+	case c.flush <- struct{}{}:
+	default:
+	}
+}
+
+// controlFrame 是服务端下行的控制帧。指标帧是单向上行的，下行只有控制。
+type controlFrame struct {
+	Type string `json:"type"`
+	// Stream 出现在 hello 里，表示当前是否有人在看。旧服务端不带这个字段。
+	Stream *bool `json:"stream"`
+	// Enabled 出现在 stream 指令里，订阅者从 0 变正 / 从正变 0 时下发。
+	Enabled *bool `json:"enabled"`
+}
+
+// applyControl 处理服务端下行的推流开关。无法解析或不认识的帧一律忽略——
+// 控制通道出问题时应该退化成「照常推流」，而不是静默。
+func (c *Client) applyControl(data []byte) {
+	var control controlFrame
+	if err := json.Unmarshal(data, &control); err != nil {
+		return
+	}
+	var enabled bool
+	switch control.Type {
+	case "hello":
+		// 旧服务端的 hello 不带 stream：视为不支持按需推流，恢复常开。
+		// 少了这一条，服务端一旦回滚，暂停中的探针会永远静默下去。
+		enabled = control.Stream == nil || *control.Stream
+	case "stream":
+		if control.Enabled == nil {
+			return
+		}
+		enabled = *control.Enabled
+	default:
+		return
+	}
+
+	c.mu.Lock()
+	changed := c.streaming != enabled
+	c.streaming = enabled
+	c.mu.Unlock()
+	if !changed {
+		return
+	}
+	if enabled {
+		log.Printf("实时推流已恢复：有订阅者在看")
+		// 立刻补发缓冲里的样本，别让刚打开页面的人等一个攒批窗口。
+		c.signalFlush()
+		return
+	}
+	log.Printf("实时推流已暂停：当前无人订阅")
+}
+
+func (c *Client) isStreaming() bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.streaming
+}
+
+// takeBatch 取出一批不超过字节/条数上限的样本，剩余的留到下一批。
+func (c *Client) takeBatch() []pendingSample {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if len(c.pending) == 0 {
+		return nil
+	}
+	total := 0
+	taken := 0
+	for _, item := range c.pending {
+		if taken > 0 && (total+item.bytes > maxBatchBytes || taken >= maxBatchSamples) {
+			break
+		}
+		total += item.bytes
+		taken++
+	}
+	batch := make([]pendingSample, taken)
+	copy(batch, c.pending[:taken])
+	c.pending = c.pending[taken:]
+	c.pendingBytes -= total
+	return batch
 }
 
 func sumNetworkTotals(network []model.NetworkInfo) (uint64, uint64, bool) {
@@ -233,15 +376,24 @@ func (c *Client) stream(ctx context.Context, conn *websocket.Conn) error {
 	readErr := make(chan error, 1)
 	go func() {
 		for {
-			if _, _, err := conn.ReadMessage(); err != nil {
+			_, data, err := conn.ReadMessage()
+			if err != nil {
 				readErr <- err
 				return
 			}
+			c.applyControl(data)
 		}
 	}()
 
 	pingTicker := time.NewTicker(pingInterval)
 	defer pingTicker.Stop()
+	batchTicker := time.NewTicker(c.liveInterval)
+	defer batchTicker.Stop()
+
+	// 刚连上先把攒着的样本发出去，避免重连后实时视图空白一个攒批窗口。
+	if err := c.sendBatch(conn); err != nil {
+		return err
+	}
 	for {
 		select {
 		case <-ctx.Done():
@@ -254,11 +406,16 @@ func (c *Client) stream(ctx context.Context, conn *websocket.Conn) error {
 			return ctx.Err()
 		case err := <-readErr:
 			return err
-		case frame := <-c.latest:
-			if err := writeFrame(conn, frame); err != nil {
-				c.requeue(frame)
+		case <-batchTicker.C:
+			if err := c.sendBatch(conn); err != nil {
 				return err
 			}
+		case <-c.flush:
+			// 缓冲触顶提前发一批，随后重置窗口，避免紧接着又发一批小的。
+			if err := c.sendBatch(conn); err != nil {
+				return err
+			}
+			batchTicker.Reset(c.liveInterval)
 		case <-pingTicker.C:
 			if err := conn.SetWriteDeadline(time.Now().Add(writeTimeout)); err != nil {
 				return err
@@ -270,7 +427,44 @@ func (c *Client) stream(ctx context.Context, conn *websocket.Conn) error {
 	}
 }
 
-func writeFrame(conn *websocket.Conn, frame *model.LiveMetricFrame) error {
+// sendBatch 取出当前缓冲并发出一帧。缓冲为空时不发帧——没有采集就不该产生请求。
+//
+// 无人订阅时一帧不发，但采集与缓冲照常进行：缓冲上限约 100 秒，恢复推流时
+// 立刻补上这一段，打开页面不至于对着空图表等。历史精度与此无关——那条路
+// 走本地 spool + HTTP 批量写 D1，跟实时通道完全独立。
+func (c *Client) sendBatch(conn *websocket.Conn) error {
+	if !c.isStreaming() {
+		return nil
+	}
+	batch := c.takeBatch()
+	if len(batch) == 0 {
+		return nil
+	}
+	samples := make([]*model.LiveMetricSample, len(batch))
+	for index, item := range batch {
+		samples[index] = item.sample
+	}
+	frame := &model.LiveMetricBatch{
+		Type:            "metric_batch",
+		ProtocolVersion: liveProtocolVersion,
+		Sequence:        c.nextSequence(),
+		Samples:         samples,
+	}
+	if err := writeFrame(conn, frame); err != nil {
+		c.requeue(batch)
+		return err
+	}
+	return nil
+}
+
+func (c *Client) nextSequence() uint64 {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.sequence++
+	return c.sequence
+}
+
+func writeFrame(conn *websocket.Conn, frame *model.LiveMetricBatch) error {
 	payload, err := json.Marshal(frame)
 	if err != nil {
 		return fmt.Errorf("序列化实时指标失败: %w", err)
@@ -287,18 +481,20 @@ func writeFrame(conn *websocket.Conn, frame *model.LiveMetricFrame) error {
 	return nil
 }
 
-func (c *Client) requeue(frame *model.LiveMetricFrame) {
-	if frame == nil {
+// requeue 把发送失败的一批放回缓冲头部，等重连后随下一批一起发。
+// 放回后仍按上限裁剪：重连拖得越久，越应该保留新样本而不是旧样本。
+func (c *Client) requeue(batch []pendingSample) {
+	if len(batch) == 0 {
 		return
 	}
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	select {
-	case existing := <-c.latest:
-		if existing.Sequence > frame.Sequence {
-			frame = existing
-		}
-	default:
+	restored := make([]pendingSample, 0, len(batch)+len(c.pending))
+	restored = append(restored, batch...)
+	restored = append(restored, c.pending...)
+	c.pending = restored
+	for _, item := range batch {
+		c.pendingBytes += item.bytes
 	}
-	c.latest <- frame
+	c.trimPendingLocked()
 }

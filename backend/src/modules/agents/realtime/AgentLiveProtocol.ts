@@ -1,6 +1,11 @@
 import { z } from "zod";
 
-import type { BroadcastMetricData, BroadcastUpdate } from "../../../models/broadcast";
+import type {
+  BroadcastMetricData,
+  BroadcastSample,
+  BroadcastUpdate,
+} from "../../../models/broadcast";
+import { MAX_REPORT_SAMPLES } from "../../../utils/agentConfig";
 import { projectPublicRealtimeMetric } from "../../status/domain/public-contract";
 
 const boundedMetric = z.number().finite().min(0).max(Number.MAX_SAFE_INTEGER);
@@ -33,71 +38,105 @@ const pingMetric = z
   })
   .strict();
 
+/** 单个采样点。v1 把它摊平进帧本体，v2 把 N 个装进一帧的 samples。 */
+const liveMetricPayloadShape = {
+  collected_at: z.string().datetime({ offset: true }),
+  cpu: z
+    .object({
+      usage: percentMetric,
+      cores: z.number().int().positive().max(4096),
+      model_name: z.string().max(512),
+    })
+    .strict(),
+  memory: z
+    .object({
+      total: boundedMetric,
+      used: boundedMetric,
+      free: boundedMetric,
+      usage_rate: percentMetric,
+    })
+    .strict(),
+  load: z
+    .object({
+      load1: boundedMetric,
+      load5: boundedMetric,
+      load15: boundedMetric,
+    })
+    .strict(),
+  disks: z.array(diskMetric).max(128).optional(),
+  network: z.array(networkMetric).max(128).optional(),
+  swap: z
+    .object({
+      total: boundedMetric,
+      used: boundedMetric,
+      usage_rate: percentMetric,
+    })
+    .strict()
+    .nullable()
+    .optional(),
+  process_count: z.number().int().nonnegative().max(10_000_000).optional(),
+  tcp_connections: z.number().int().nonnegative().max(10_000_000).optional(),
+  udp_connections: z.number().int().nonnegative().max(10_000_000).optional(),
+  // 上限挂在字段自身而不是帧的 superRefine 上：帧 schema 必须保持 ZodObject，
+  // 否则进不了下面按 type 判别的 discriminatedUnion。
+  ping: z
+    .record(pingMetric)
+    .refine((value) => Object.keys(value).length <= 128, {
+      message: "Ping 指标最多允许 128 个目标",
+    })
+    .optional(),
+  ipv4_reachable: z.boolean().nullable().optional(),
+  ipv6_reachable: z.boolean().nullable().optional(),
+  network_rx_speed: boundedMetric.nullable(),
+  network_tx_speed: boundedMetric.nullable(),
+} as const;
+
+const liveMetricPayloadSchema = z.object(liveMetricPayloadShape).strict();
+
+const liveSequence = z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER);
+
+/**
+ * v1：一帧一个采样点。探针自升级有滞后，旧探针还会发这种帧，必须继续接受。
+ */
 export const agentLiveMetricFrameSchema = z
   .object({
     type: z.literal("metric"),
     protocol_version: z.literal(1),
-    sequence: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER),
-    collected_at: z.string().datetime({ offset: true }),
-    cpu: z
-      .object({
-        usage: percentMetric,
-        cores: z.number().int().positive().max(4096),
-        model_name: z.string().max(512),
-      })
-      .strict(),
-    memory: z
-      .object({
-        total: boundedMetric,
-        used: boundedMetric,
-        free: boundedMetric,
-        usage_rate: percentMetric,
-      })
-      .strict(),
-    load: z
-      .object({
-        load1: boundedMetric,
-        load5: boundedMetric,
-        load15: boundedMetric,
-      })
-      .strict(),
-    disks: z.array(diskMetric).max(128).optional(),
-    network: z.array(networkMetric).max(128).optional(),
-    swap: z
-      .object({
-        total: boundedMetric,
-        used: boundedMetric,
-        usage_rate: percentMetric,
-      })
-      .strict()
-      .nullable()
-      .optional(),
-    process_count: z.number().int().nonnegative().max(10_000_000).optional(),
-    tcp_connections: z.number().int().nonnegative().max(10_000_000).optional(),
-    udp_connections: z.number().int().nonnegative().max(10_000_000).optional(),
-    ping: z.record(pingMetric).optional(),
-    ipv4_reachable: z.boolean().nullable().optional(),
-    ipv6_reachable: z.boolean().nullable().optional(),
-    network_rx_speed: boundedMetric.nullable(),
-    network_tx_speed: boundedMetric.nullable(),
+    sequence: liveSequence,
+    ...liveMetricPayloadShape,
   })
-  .strict()
-  .superRefine((frame, context) => {
-    if (frame.ping && Object.keys(frame.ping).length > 128) {
-      context.addIssue({
-        code: z.ZodIssueCode.custom,
-        path: ["ping"],
-        message: "Ping 指标最多允许 128 个目标",
-      });
-    }
-  });
+  .strict();
 
+/**
+ * v2：一帧承载一个攒批窗口内的全部采样点。
+ *
+ * Durable Object 的每条入站 WebSocket 消息都单独计一次 Worker 请求，秒级一帧
+ * 时单台探针就是 86400 次/天。攒批只增加实时视图延迟，批内仍是逐秒样本。
+ * samples 上限与 MAX_REPORT_SAMPLES 对齐，探针侧 maxBatchSamples 必须相同。
+ */
+export const agentLiveMetricBatchSchema = z
+  .object({
+    type: z.literal("metric_batch"),
+    protocol_version: z.literal(2),
+    sequence: liveSequence,
+    samples: z.array(liveMetricPayloadSchema).min(1).max(MAX_REPORT_SAMPLES),
+  })
+  .strict();
+
+export const agentLiveFrameSchema = z.discriminatedUnion("type", [
+  agentLiveMetricFrameSchema,
+  agentLiveMetricBatchSchema,
+]);
+
+export type AgentLiveMetricPayload = z.infer<typeof liveMetricPayloadSchema>;
 export type AgentLiveMetricFrame = z.infer<typeof agentLiveMetricFrameSchema>;
+export type AgentLiveMetricBatch = z.infer<typeof agentLiveMetricBatchSchema>;
+export type AgentLiveFrame = z.infer<typeof agentLiveFrameSchema>;
 
-export function liveFrameToBroadcastUpdate(
+function payloadToBroadcastSample(
   agentId: number,
-  frame: AgentLiveMetricFrame
-): BroadcastUpdate {
+  frame: AgentLiveMetricPayload
+): BroadcastSample {
   const data: BroadcastMetricData & Record<string, unknown> = {
     agent_id: agentId,
     timestamp: frame.collected_at,
@@ -152,16 +191,29 @@ export function liveFrameToBroadcastUpdate(
   ) as BroadcastMetricData;
   const timestamp = Date.parse(frame.collected_at);
   return {
+    ts: Number.isFinite(timestamp) ? timestamp : Date.now(),
+    data,
+    publicData,
+  };
+}
+
+/**
+ * 把 v1 单点帧或 v2 批次帧统一映射成一次广播更新。
+ *
+ * 批次内保持探针的采集顺序，状态字段取批内最后一个采样点——它才是"最新"。
+ */
+export function liveFrameToBroadcastUpdate(
+  agentId: number,
+  frame: AgentLiveFrame
+): BroadcastUpdate {
+  const payloads: AgentLiveMetricPayload[] =
+    frame.type === "metric_batch" ? frame.samples : [frame];
+  const latest = payloads[payloads.length - 1];
+  return {
     agentId,
     status: "active",
-    lastSeenAt: frame.collected_at,
-    changedAt: frame.collected_at,
-    samples: [
-      {
-        ts: Number.isFinite(timestamp) ? timestamp : Date.now(),
-        data,
-        publicData,
-      },
-    ],
+    lastSeenAt: latest.collected_at,
+    changedAt: latest.collected_at,
+    samples: payloads.map((payload) => payloadToBroadcastSample(agentId, payload)),
   };
 }

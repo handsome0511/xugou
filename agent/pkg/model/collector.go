@@ -126,13 +126,10 @@ func (r *AgentReport) SampleCount() int {
 	return total
 }
 
-// LiveMetricFrame 是 Agent 到 Worker 独立上行 WebSocket 的实时协议。
-// 实时帧只承载指标，不携带 Agent Credential 和静态身份；身份在 WebSocket
-// 握手阶段通过 Authorization Header 完成绑定。
-type LiveMetricFrame struct {
-	Type            string                `json:"type"`
-	ProtocolVersion int                   `json:"protocol_version"`
-	Sequence        uint64                `json:"sequence"`
+// LiveMetricSample 是实时协议里的单个采样点。样本只承载指标，不携带 Agent
+// Credential 和静态身份；身份在 WebSocket 握手阶段通过 Authorization Header
+// 完成绑定。
+type LiveMetricSample struct {
 	CollectedAt     string                `json:"collected_at"`
 	CPU             CPUInfo               `json:"cpu"`
 	Memory          MemoryInfo            `json:"memory"`
@@ -148,6 +145,19 @@ type LiveMetricFrame struct {
 	IPv6Reachable   *bool                 `json:"ipv6_reachable,omitempty"`
 	NetworkRxSpeed  *float64              `json:"network_rx_speed"`
 	NetworkTxSpeed  *float64              `json:"network_tx_speed"`
+}
+
+// LiveMetricBatch 是 Agent 到 Worker 独立上行 WebSocket 的实时协议（v2）。
+//
+// 一批承载 live-interval 窗口内的全部采样点，而不是每个采样点发一帧：
+// Durable Object 的每条入站 WebSocket 消息都单独计一次 Worker 请求，
+// 秒级一帧的话单台探针就是 86400 次/天，免费额度一台就用光。
+// 攒批只增加实时视图的延迟，不降低采样精度——批内仍是逐秒的样本。
+type LiveMetricBatch struct {
+	Type            string              `json:"type"`
+	ProtocolVersion int                 `json:"protocol_version"`
+	Sequence        uint64              `json:"sequence"`
+	Samples         []*LiveMetricSample `json:"samples"`
 }
 
 // NewAgentReportSample 从一次完整采集中生成不含凭据的 v4 样本。

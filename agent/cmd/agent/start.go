@@ -59,6 +59,11 @@ func runStart(cmd *cobra.Command, args []string) {
 	}
 	config.CollectInterval = collectInterval
 	config.ReportInterval = reportInterval
+	config.LiveInterval = viper.GetInt("live-interval")
+	if err := config.ValidateLiveInterval(config.LiveInterval); err != nil {
+		fmt.Printf("实时发送间隔配置错误: %v\n", err)
+		return
+	}
 	config.ProxyURL = viper.GetString("proxy")
 	config.SpoolDir = viper.GetString("spool-dir")
 	config.SpoolMaxBytes = viper.GetInt64("spool-max-bytes")
@@ -91,6 +96,7 @@ func runStart(cmd *cobra.Command, args []string) {
 	fmt.Printf("服务器地址: %s\n", config.ServerURL)
 	fmt.Printf("采集数据间隔: %d秒\n", config.CollectInterval)
 	fmt.Printf("上报数据间隔: %d秒\n", config.ReportInterval)
+	fmt.Printf("实时发送间隔: %d秒\n", config.LiveInterval)
 	fmt.Printf("持久化采样队列: %s (上限 %d 字节)\n", config.SpoolDir, config.SpoolMaxBytes)
 	if config.ProxyURL != "" {
 		fmt.Printf("使用代理服务器: %s\n", config.ProxyURL)
@@ -109,6 +115,7 @@ func runStart(cmd *cobra.Command, args []string) {
 		config.Token,
 		config.AgentVersion,
 		config.ProxyURL,
+		time.Duration(config.LiveInterval)*time.Second,
 	)
 	if err != nil {
 		fmt.Printf("初始化实时 WebSocket 失败: %v\n", err)
@@ -246,8 +253,8 @@ func collectSample(
 		return
 	}
 
-	// 实时路径只保存一个最新内存帧，网络写入由独立 goroutine 完成。
-	// 即使 WebSocket 断开，下面的本地 spool 仍持续写入。
+	// 实时路径只把样本追加进有界内存缓冲，按 live-interval 攒批，网络写入由
+	// 独立 goroutine 完成。即使 WebSocket 断开，下面的本地 spool 仍持续写入。
 	live.Publish(info)
 
 	dropped, err := samples.Add(info)

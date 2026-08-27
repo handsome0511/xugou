@@ -6,9 +6,10 @@ import type {
   BroadcastUpdate,
 } from "../models/broadcast";
 import {
-  agentLiveMetricFrameSchema,
+  agentLiveFrameSchema,
   liveFrameToBroadcastUpdate,
 } from "../modules/agents/realtime/AgentLiveProtocol";
+import { streamCommandFor } from "../modules/agents/realtime/StreamGate";
 import { MAX_REPORT_SAMPLES } from "../utils/agentConfig";
 
 const LATEST_REPORT_TTL_MS = 5 * 60 * 1000;
@@ -234,6 +235,12 @@ export class AgentRoom extends DurableObject {
       server.send(this.serializeUpdates(cached, scope));
     }
 
+    // 这条连接已经 accept，所以 after 里含它自己，before 是它加入之前的数量。
+    this.syncStreamCommands(agentIds, (agentId) => {
+      const after = this.countSubscribers(agentId);
+      return { before: after - 1, after };
+    });
+
     return new Response(null, {
       status: 101,
       webSocket: client,
@@ -271,8 +278,16 @@ export class AgentRoom extends DurableObject {
       sequence: -1,
     };
     server.serializeAttachment(attachment);
+    // hello 带上当前是否有人在看：探针重连后据此对齐，不必等下一次边沿。
+    // 探针默认常开，所以这个字段缺失（旧服务端）时它会照常推流。
     server.send(
-      JSON.stringify({ type: "hello", protocol_version: 1, agentId, ts: Date.now() })
+      JSON.stringify({
+        type: "hello",
+        protocol_version: 1,
+        agentId,
+        ts: Date.now(),
+        stream: this.countSubscribers(agentId) > 0,
+      })
     );
     return new Response(null, { status: 101, webSocket: client });
   }
@@ -340,6 +355,47 @@ export class AgentRoom extends DurableObject {
       }
     }
     return delivered;
+  }
+
+  /**
+   * 统计当前订阅了某个 Agent 的下行连接数。
+   *
+   * exclude 是给 webSocketClose 用的：关闭回调触发时 getWebSockets() 仍可能
+   * 包含正在关闭的这条连接，不排掉的话永远算不出「最后一个观众走了」。
+   */
+  private countSubscribers(agentId: number, exclude?: WebSocket): number {
+    let count = 0;
+    for (const socket of this.ctx.getWebSockets()) {
+      if (socket === exclude) continue;
+      const attachment = this.readSubscriberAttachment(socket);
+      if (attachment?.agentIds.includes(agentId)) count += 1;
+    }
+    return count;
+  }
+
+  /** 给该 Agent 的上行连接下发推流开关。探针不在线时静默跳过——它上线时会在 hello 里拿到当前状态。 */
+  private sendStreamCommand(agentId: number, enabled: boolean): void {
+    for (const socket of this.ctx.getWebSockets()) {
+      const attachment = this.readAgentAttachment(socket);
+      if (attachment?.agentId !== agentId) continue;
+      try {
+        socket.send(JSON.stringify({ type: "stream", enabled }));
+      } catch {
+        // 单条上行发送失败不影响其他 Agent，探针重连后会在 hello 里重新对齐。
+      }
+    }
+  }
+
+  /** 订阅者数量变化后按边沿下发指令。before/after 由调用方按各自时机算好。 */
+  private syncStreamCommands(
+    agentIds: number[],
+    resolve: (agentId: number) => { before: number; after: number }
+  ): void {
+    for (const agentId of agentIds) {
+      const { before, after } = resolve(agentId);
+      const command = streamCommandFor(before, after);
+      if (command !== null) this.sendStreamCommand(agentId, command);
+    }
   }
 
   private serializeUpdates(
@@ -437,7 +493,8 @@ export class AgentRoom extends DurableObject {
       socket.close(1008, "invalid live metric json");
       return;
     }
-    const parsed = agentLiveMetricFrameSchema.safeParse(decoded);
+    // v1 单点帧与 v2 攒批帧同时接受：探针自升级有滞后，两种探针会并存一段时间。
+    const parsed = agentLiveFrameSchema.safeParse(decoded);
     if (!parsed.success) {
       socket.close(1008, "invalid live metric frame");
       return;
@@ -448,12 +505,27 @@ export class AgentRoom extends DurableObject {
     this.acceptUpdate(liveFrameToBroadcastUpdate(attachment.agentId, parsed.data));
   }
 
-  webSocketClose(): void {
-    // Hibernation API 负责连接生命周期。
+  webSocketClose(socket: WebSocket): void {
+    // Hibernation API 负责连接生命周期，这里只负责「最后一个观众走了」的边沿。
+    this.releaseSubscriber(socket);
   }
 
-  webSocketError(): void {
-    // Hibernation API 负责连接生命周期。
+  webSocketError(socket: WebSocket): void {
+    this.releaseSubscriber(socket);
+  }
+
+  /**
+   * 下行连接断开时，若该 Agent 已经没有观众就让探针停止推流。
+   *
+   * 上行连接断开走不到这里的分支——探针自己会重连，并在 hello 里重新对齐。
+   */
+  private releaseSubscriber(socket: WebSocket): void {
+    const attachment = this.readSubscriberAttachment(socket);
+    if (!attachment) return;
+    this.syncStreamCommands(attachment.agentIds, (agentId) => {
+      const after = this.countSubscribers(agentId, socket);
+      return { before: after + 1, after };
+    });
   }
 }
 

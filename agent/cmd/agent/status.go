@@ -67,6 +67,7 @@ func runStatus(noProbe bool) {
 	}
 	fmt.Printf("  采集间隔:     %d 秒\n", viper.GetInt("collect-interval"))
 	fmt.Printf("  上报间隔:     %d 秒\n", viper.GetInt("report-interval"))
+	fmt.Printf("  实时间隔:     %d 秒\n", viper.GetInt("live-interval"))
 	spoolDir := viper.GetString("spool-dir")
 	if spoolDir == "" {
 		spoolDir = filepath.Join(filepath.Dir(cfgFile), ".xugou-spool")

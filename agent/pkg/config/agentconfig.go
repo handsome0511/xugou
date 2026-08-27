@@ -29,6 +29,9 @@ const (
 	MaxCollectInterval = 3600
 	MinReportInterval  = 10
 	MaxReportInterval  = 3600
+	// 实时攒批间隔只是本地参数，不参与配置下发协议，因此不进规范化串与 MD5。
+	MinLiveInterval = 1
+	MaxLiveInterval = 300
 
 	// maxConfigBodyBytes 服务端下发配置串的最大长度，超出整体丢弃
 	maxConfigBodyBytes = 512
@@ -111,6 +114,14 @@ func ValidateIntervals(collect, report int) error {
 	}
 	if report < collect {
 		return fmt.Errorf("report_interval(%d) 不能小于 collect_interval(%d)", report, collect)
+	}
+	return nil
+}
+
+// ValidateLiveInterval 校验实时攒批间隔值域：1-300 秒。
+func ValidateLiveInterval(live int) error {
+	if live < MinLiveInterval || live > MaxLiveInterval {
+		return fmt.Errorf("live_interval 超出值域 [%d, %d]: %d", MinLiveInterval, MaxLiveInterval, live)
 	}
 	return nil
 }
