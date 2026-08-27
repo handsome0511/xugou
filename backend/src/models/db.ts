@@ -20,5 +20,3 @@ export type Bindings = Cloudflare.Env &
   SecretBindings &
   OptionalRuntimeBindings;
 
-export type DurableObjectNamespaceLike =
-  Cloudflare.Env["AGENT_ROOM"];

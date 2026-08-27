@@ -50,26 +50,6 @@ export interface Agent {
   deleted_at?: string | null;
 }
 
-// 客户端类型定义
-export interface AgentWithMetrics {
-  id: number;
-  name: string;
-  token: string;
-  status: string;
-  created_at: string;
-  updated_at: string;
-  hostname: string | null;
-  keepalive: string | null;
-  ip_addresses: string | null; // 存储多个IP地址的JSON字符串
-  os: string | null;
-  version: string | null;
-  last_seen_at: string | null;
-  last_state_changed_at: string | null;
-  next_offline_at: string | null;
-  deleted_at?: string | null;
-  metrics: Metrics[] | null;
-}
-
 export interface Metrics {
   id?: number;
   agent_id: number;

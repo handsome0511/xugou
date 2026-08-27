@@ -31,7 +31,6 @@ export class MonitorCheckSyncProcessor {
   ) {}
 
   async process(monitorId: number, scheduledForMs: number): Promise<MonitorJobResult> {
-    const now = new Date();
     try {
       const targetMonitor = await this.env.DB.prepare(
         `SELECT d.id, d.name, d.url, d.method, d.headers_json AS headers,

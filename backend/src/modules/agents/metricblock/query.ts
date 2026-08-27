@@ -20,9 +20,6 @@ export const HOT_WINDOW_SECONDS = 25 * 60;
 /** 单次查询最多读取的块数，防止超大窗口把 Worker 拖垮。 */
 const MAX_BLOCKS_PER_QUERY = 400;
 
-/** 返回给图表的点数上限。 */
-export const MAX_CHART_POINTS = 2000;
-
 export type Resolution = 1 | 60;
 
 /** 一个块覆盖的秒数：1 秒块跨 1 分钟，1 分钟块跨 1 小时。 */

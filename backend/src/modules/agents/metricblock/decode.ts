@@ -51,11 +51,6 @@ export interface DecodedBlock {
   series: Map<number, (number | null)[][]>;
 }
 
-/** 每个槽的时间戳（epoch 秒）。 */
-export function slotTimestamp(block: DecodedBlock, slot: number): number {
-  return block.bucketStart + slot * block.interval;
-}
-
 /** base64 解成字节。非法输入抛 MetricBlockError 而不是 atob 的原生异常。 */
 export function base64ToBytes(value: string): Uint8Array {
   let binary: string;

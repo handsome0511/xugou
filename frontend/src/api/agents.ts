@@ -9,7 +9,6 @@ export type AgentV2 = components["schemas"]["Agent"];
 export type AgentPage = components["schemas"]["AgentPage"];
 export type AgentUpdate = components["schemas"]["AgentUpdate"];
 export type AgentMetric = components["schemas"]["AgentMetric"];
-export type AgentCredentialMetadata = components["schemas"]["AgentCredential"];
 export type AgentCredentialPage = components["schemas"]["AgentCredentialPage"];
 export type AgentEnrollmentMetadata = components["schemas"]["AgentEnrollment"];
 export type AgentExportItem = components["schemas"]["AgentExportItem"];
@@ -124,19 +123,6 @@ export async function revokeAgentEnrollment(id: number): Promise<void> {
     params: { path: { id } },
   });
   assertOk(result);
-}
-
-export async function getAgentCredentials(
-  agentId: number,
-  input: { cursor?: number; limit?: number } = {}
-): Promise<AgentCredentialPage> {
-  const result = await v2Client.GET("/api/v2/agents/{id}/credentials", {
-    params: {
-      path: { id: agentId },
-      query: { cursor: input.cursor, limit: input.limit ?? 25 },
-    },
-  });
-  return unwrapOpenApi(result);
 }
 
 export async function rotateAgentCredential(agentId: number) {

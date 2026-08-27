@@ -107,16 +107,6 @@ export type PublicAgentSource = {
   traffic_calc_type?: string | null;
 };
 
-export type PublicMonitorSource = {
-  id: number;
-  name: string;
-  status: string | null;
-  response_time: number | null;
-  last_checked: string | null;
-  created_at: string;
-  updated_at: string;
-};
-
 export function toPublicAgent(agent: PublicAgentSource) {
   const latitude = cityMapCoordinate(agent.map_latitude, 90);
   const longitude = cityMapCoordinate(agent.map_longitude, 180);
@@ -150,18 +140,6 @@ function cityMapCoordinate(
     return null;
   }
   return Math.round(value * 100) / 100;
-}
-
-export function toPublicMonitor(monitor: PublicMonitorSource) {
-  return {
-    id: monitor.id,
-    name: monitor.name,
-    status: monitor.status ?? "pending",
-    response_time: monitor.response_time ?? 0,
-    last_checked: monitor.last_checked ?? null,
-    created_at: monitor.created_at,
-    updated_at: monitor.updated_at,
-  };
 }
 
 function decodedJsonString(value: string): unknown {

@@ -129,8 +129,6 @@ export const agentLiveFrameSchema = z.discriminatedUnion("type", [
 ]);
 
 export type AgentLiveMetricPayload = z.infer<typeof liveMetricPayloadSchema>;
-export type AgentLiveMetricFrame = z.infer<typeof agentLiveMetricFrameSchema>;
-export type AgentLiveMetricBatch = z.infer<typeof agentLiveMetricBatchSchema>;
 export type AgentLiveFrame = z.infer<typeof agentLiveFrameSchema>;
 
 function payloadToBroadcastSample(

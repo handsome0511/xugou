@@ -6,9 +6,6 @@ export type DashboardMonitor = components["schemas"]["DashboardMonitor"];
 export type DashboardAgent = components["schemas"]["DashboardAgent"];
 
 // 获取仪表盘数据
-export const getDashboardData = async (): Promise<DashboardData> =>
-  getDashboardDataWithSignal();
-
 export const getDashboardDataWithSignal = async (
   signal?: AbortSignal
 ): Promise<DashboardData> => {

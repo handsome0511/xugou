@@ -23,16 +23,6 @@ const (
 	ServiceUnitPath = "/etc/systemd/system/xugou-agent.service"
 )
 
-// BinaryName 按操作系统与架构拼接分发产物文件名，
-// 与 .github/workflows/build.yml 的产物命名保持一致。
-func BinaryName(goos, goarch string) string {
-	name := fmt.Sprintf("%s-%s-%s", AgentName, goos, goarch)
-	if goos == "windows" {
-		name += ".exe"
-	}
-	return name
-}
-
 // CheckBinaryMagic 校验可执行文件魔数（ELF / Mach-O / PE）。
 // header 至少需要 4 字节。
 func CheckBinaryMagic(header []byte) error {

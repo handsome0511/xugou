@@ -171,37 +171,6 @@ export async function writeSecurityAuditEvent(
   }
 }
 
-export async function listSecurityAuditEvents(
-  env: Pick<Bindings, "DB">,
-  filter: { eventType?: string; outcome?: string; limit: number; offset: number }
-) {
-  const conditions: string[] = [];
-  const bindings: unknown[] = [];
-  if (filter.eventType) {
-    conditions.push("event_type = ?");
-    bindings.push(filter.eventType);
-  }
-  if (filter.outcome) {
-    conditions.push("outcome = ?");
-    bindings.push(filter.outcome);
-  }
-  const where = conditions.length ? `WHERE ${conditions.join(" AND ")}` : "";
-  const [rows, count] = await Promise.all([
-    env.DB.prepare(
-      `SELECT id, event_type, outcome, actor_type, actor_id, subject_type,
-              subject_id, request_id, ip_digest, metadata_json, created_at, updated_at
-       FROM security_audit_events ${where}
-       ORDER BY created_at DESC LIMIT ? OFFSET ?`
-    )
-      .bind(...bindings, filter.limit, filter.offset)
-      .all<Record<string, unknown>>(),
-    env.DB.prepare(`SELECT count(*) AS count FROM security_audit_events ${where}`)
-      .bind(...bindings)
-      .first<{ count: number }>(),
-  ]);
-  return { rows: rows.results, total: Number(count?.count ?? 0) };
-}
-
 interface SecurityAuditCursor {
   createdAt: string;
   id: string;

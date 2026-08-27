@@ -18,7 +18,3 @@ export interface ActiveMetricPublication extends ActiveStatusPublication {
   agentId: number;
 }
 
-export interface PublicMetricPublicationDraft {
-  agentId: number;
-  metrics: import("./public-contract").PublicAgentMetric[];
-}

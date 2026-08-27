@@ -8,16 +8,13 @@ import {
   linkAgentEnrollmentToken,
   releaseAgentEnrollmentToken,
 } from "./D1AgentCredentialStore";
-import { normalizeAgentMetricsHours } from "../../../utils/agentMetricsHours";
-import type { AgentMutation, AgentReportSample, AgentView } from "../domain/models";
+import type { AgentMutation } from "../domain/models";
 import { downsample, queryAgentSamples } from "../metricblock/query";
 import type { BlockSample } from "../metricblock/materialize";
 
 import { createAgentUseCases } from "../composition";
 
 export { normalizeAgentMetricsHours } from "../../../utils/agentMetricsHours";
-
-const LEGACY_AGENT_LIST_LIMIT = 500;
 
 interface LatestMetricRow {
   agent_id: number;
@@ -33,42 +30,6 @@ function parseLatestMetric(row: LatestMetricRow): Metrics | null {
       ...parsed,
       agent_id: row.agent_id,
       timestamp: parsed.timestamp ?? row.collected_at ?? row.reported_at ?? "",
-    };
-  } catch {
-    return null;
-  }
-}
-
-export async function listLegacyAgents(env: Bindings, includeLatestMetrics: boolean) {
-  const views: AgentView[] = [];
-  let cursor: string | undefined;
-  do {
-    const remaining = LEGACY_AGENT_LIST_LIMIT - views.length;
-    const page = await createAgentUseCases(env).list({
-      cursor,
-      limit: Math.min(100, remaining),
-    });
-    views.push(...page.data.slice(0, remaining));
-    cursor = page.next_cursor ?? undefined;
-  } while (cursor !== undefined && views.length < LEGACY_AGENT_LIST_LIMIT);
-  const metrics = includeLatestMetrics
-    ? await queryLatestAgentMetricsForIds(
-        env,
-        views.map((view) => view.id)
-      )
-    : new Map<number, Metrics>();
-  return views.map((view) => ({
-    ...toLegacyAgent(view),
-    ...(includeLatestMetrics ? { metrics: metrics.get(view.id) ?? null } : {}),
-  }));
-}
-
-export async function getLegacyAgent(env: Bindings, id: number) {
-  try {
-    const view = await createAgentUseCases(env).get(id);
-    return {
-      ...toLegacyAgent(view),
-      ip_addresses: view.ip_addresses.join(", ") || "未知",
     };
   } catch {
     return null;
@@ -145,19 +106,6 @@ export function toAgentMutation(input: Record<string, unknown>): AgentMutation {
   return mutation;
 }
 
-export function toLegacyAgent(view: AgentView) {
-  return {
-    ...view,
-    ip_addresses: JSON.stringify(view.ip_addresses),
-    collect_interval: view.collect_interval_seconds,
-    report_interval: view.report_interval_seconds,
-    tags: view.tags.join(","),
-    auto_renewal: view.auto_renewal ? 1 : 0,
-    is_hidden: view.is_hidden ? 1 : 0,
-    auto_update: view.auto_update ? 1 : 0,
-  };
-}
-
 export async function updateLegacyAgentOrder(env: Bindings, ids: number[]) {
   const uniqueIds = [...new Set(ids)];
   const row = await env.DB.prepare(
@@ -179,50 +127,6 @@ export async function updateLegacyAgentOrder(env: Bindings, ids: number[]) {
     );
   }
   return true;
-}
-
-export function toAgentExportRecord(agent: {
-  name: string;
-  hostname?: string | null;
-  os?: string | null;
-  version?: string | null;
-  collect_interval?: number | null;
-  report_interval?: number | null;
-  price?: number | null;
-  currency?: string | null;
-  billing_cycle?: string | null;
-  expire_date?: string | null;
-  auto_renewal?: number | null;
-  is_hidden?: number | null;
-  traffic_limit_gb?: number | null;
-  traffic_reset_day?: number | null;
-  traffic_calc_type?: string | null;
-  auto_update?: number | null;
-  group_name?: string | null;
-  tags?: string | null;
-  sort_order?: number | null;
-}) {
-  return {
-    name: agent.name,
-    hostname: agent.hostname ?? null,
-    os: agent.os ?? null,
-    version: agent.version ?? null,
-    collect_interval: agent.collect_interval ?? null,
-    report_interval: agent.report_interval ?? null,
-    price: agent.price ?? null,
-    currency: agent.currency ?? null,
-    billing_cycle: agent.billing_cycle ?? null,
-    expire_date: agent.expire_date ?? null,
-    auto_renewal: agent.auto_renewal ?? 0,
-    is_hidden: agent.is_hidden ?? 0,
-    traffic_limit_gb: agent.traffic_limit_gb ?? null,
-    traffic_reset_day: agent.traffic_reset_day ?? 1,
-    traffic_calc_type: agent.traffic_calc_type ?? "sum",
-    auto_update: agent.auto_update ?? 0,
-    group_name: agent.group_name ?? null,
-    tags: agent.tags ?? null,
-    sort_order: agent.sort_order ?? 0,
-  };
 }
 
 async function insertAgent(
@@ -322,9 +226,6 @@ export async function registerAgent(
     throw error;
   }
 }
-
-// v1 Adapter 在 Expand 窗口内复用同一注册实现。
-export const registerLegacyAgent = registerAgent;
 
 export async function importLegacyAgents(
   env: Bindings,

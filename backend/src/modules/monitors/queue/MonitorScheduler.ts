@@ -13,7 +13,6 @@ export async function scheduleDueMonitorChecks(
 ) {
   const monotonicNow = options.monotonicNow ?? (() => performance.now());
   const startedAt = monotonicNow();
-  const now = scheduledAt.toISOString();
   const nowMs = scheduledAt.getTime();
   const limit = getEnvNumber(env, "MONITOR_CHECK_BATCH_SIZE", 50, {
     min: 1,

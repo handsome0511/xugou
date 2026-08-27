@@ -3,26 +3,6 @@ import type { Bindings } from "../../../models/db";
 import type { MonitorRepositoryPort } from "../application/MonitorUseCases";
 import type { MonitorMutation, MonitorView } from "../domain/models";
 
-type LegacyRow = {
-  id: number;
-  name: string;
-  url: string;
-  method: string;
-  interval: number;
-  timeout_ms: number;
-  expected_status: number;
-  headers: string;
-  body: string | null;
-  active: number;
-  status: string | null;
-  response_time: number | null;
-  last_checked: string | null;
-  next_check_at: string | null;
-  sort_order: number | null;
-  created_at: string;
-  updated_at: string;
-};
-
 type TargetRow = {
   id: number;
   name: string;
@@ -61,28 +41,6 @@ function iso(value: number | null) {
   return value === null ? null : new Date(value).toISOString();
 }
 
-function legacyView(row: LegacyRow): MonitorView {
-  return {
-    id: row.id,
-    name: row.name,
-    url: row.url,
-    method: row.method,
-    interval_seconds: row.interval,
-    timeout_ms: row.timeout_ms,
-    expected_status: row.expected_status,
-    headers: parseHeaders(row.headers),
-    body: row.body,
-    active: row.active === 1,
-    status: row.status,
-    response_time_ms: row.response_time,
-    last_checked_at: row.last_checked,
-    next_check_at: row.next_check_at,
-    sort_order: row.sort_order ?? 0,
-    created_at: row.created_at,
-    updated_at: row.updated_at,
-  };
-}
-
 function targetView(row: TargetRow): MonitorView {
   return {
     id: row.id,
@@ -105,17 +63,10 @@ function targetView(row: TargetRow): MonitorView {
   };
 }
 
-const legacyColumns = `id, name, url, method, interval, timeout_ms,
-  expected_status, headers, body, active, status, response_time, last_checked,
-  next_check_at, sort_order, created_at, updated_at`;
 const targetColumns = `d.id, d.name, d.url, d.method, d.headers_json, d.body,
   d.interval_ms, d.timeout_ms, d.expected_status, d.active, d.sort_order,
   d.created_at_ms, d.updated_at_ms, r.status, r.response_time_ms,
   r.last_checked_at_ms, r.next_due_at_ms`;
-
-async function checksum(value: MonitorView) {
-  return "";
-}
 
 export class D1MonitorRepository implements MonitorRepositoryPort {
   constructor(private readonly env: Bindings) {}
@@ -331,7 +282,6 @@ export class D1MonitorRepository implements MonitorRepositoryPort {
 
   async delete(id: number) {
     const nowMs = Date.now();
-    const now = new Date(nowMs).toISOString();
     const statements = [
       this.env.DB.prepare(
         `DELETE FROM notification_rules

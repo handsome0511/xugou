@@ -28,12 +28,6 @@ export function normalizeTrafficResetDay(value: unknown): number {
   return num;
 }
 
-export function normalizeTrafficCalcType(value: unknown): TrafficCalcType {
-  return TRAFFIC_CALC_TYPES.includes(value as TrafficCalcType)
-    ? (value as TrafficCalcType)
-    : "sum";
-}
-
 /**
  * 当前流量周期起点（UTC，YYYY-MM-DD）：
  * 本月 UTC 日期 >= 重置日则为本月重置日，否则为上月重置日。
@@ -59,43 +53,6 @@ export function isLoopbackInterface(name: unknown): boolean {
 export interface NetworkTotals {
   rx: number;
   tx: number;
-}
-
-/**
- * 单个样本的网络累计总量：各接口 bytes_recv/bytes_sent 求和（排除回环接口）。
- * 无网络数据（缺失/空数组/全部为回环且无有效数值）返回 null。
- */
-export function sumNetworkTotals(
-  networks:
-    | Array<{
-        interface?: string;
-        bytes_recv?: number;
-        bytes_sent?: number;
-      }>
-    | null
-    | undefined
-): NetworkTotals | null {
-  if (!Array.isArray(networks) || networks.length === 0) {
-    return null;
-  }
-  let rx = 0;
-  let tx = 0;
-  let hasData = false;
-  for (const network of networks) {
-    if (!network || typeof network !== "object") continue;
-    if (isLoopbackInterface(network.interface)) continue;
-    const recv = Number(network.bytes_recv);
-    const sent = Number(network.bytes_sent);
-    if (Number.isFinite(recv) && recv >= 0) {
-      rx += recv;
-      hasData = true;
-    }
-    if (Number.isFinite(sent) && sent >= 0) {
-      tx += sent;
-      hasData = true;
-    }
-  }
-  return hasData ? { rx, tx } : null;
 }
 
 /** 单个网卡在某一刻的累计计数器 */

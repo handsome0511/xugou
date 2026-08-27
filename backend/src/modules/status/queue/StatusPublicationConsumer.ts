@@ -171,12 +171,6 @@ export class StatusPublicationConsumer implements OutboxConsumer {
       throw new Error("Public metric publication set is incomplete");
     }
 
-    const ttlSeconds = getEnvNumber(
-      this.env,
-      "STATUS_PAGE_CACHE_TTL_SECONDS",
-      60,
-      { min: 0, max: 3600 }
-    );
     const publicationState = this.env.DB.prepare(
       `INSERT INTO status_publication_state(singleton_key, active_publication_id, updated_at)
        VALUES (1, ?, ?)

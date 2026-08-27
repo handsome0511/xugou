@@ -1,7 +1,4 @@
-import {
-  QUEUE_MESSAGE_VERSION,
-  type XugouQueueMessage,
-} from "./messages";
+import { QUEUE_MESSAGE_VERSION } from "./messages";
 
 export class QueueJobPublisher {
   constructor(

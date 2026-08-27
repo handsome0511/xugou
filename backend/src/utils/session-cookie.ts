@@ -46,6 +46,3 @@ export function getAdminSessionCookie(c: AppContext) {
   return getCookie(c, SESSION_COOKIE_NAME) ?? null;
 }
 
-export function getCsrfCookie(c: AppContext) {
-  return getCookie(c, CSRF_COOKIE_NAME) ?? null;
-}

@@ -311,24 +311,6 @@ export const getNotificationConfig = async (): Promise<NotificationConfig> => {
   };
 };
 
-export const getNotificationChannels = async (): Promise<
-  NotificationChannel[]
-> => {
-  const response = unwrapOpenApi(
-    await v2Client.GET("/api/v2/notifications/channels")
-  );
-  return response.data.map(transformChannel);
-};
-
-export const getNotificationTemplates = async (): Promise<
-  NotificationTemplate[]
-> => {
-  const response = unwrapOpenApi(
-    await v2Client.GET("/api/v2/notifications/templates")
-  );
-  return response.data.map(transformTemplate);
-};
-
 export const getNotificationResourceSettings = async (
   targetType: NotificationResourceTarget,
   input: { cursor?: string; limit?: number } = {},
@@ -513,33 +495,3 @@ export const deleteNotificationTemplate = async (
   if (!result.response.ok) unwrapOpenApi(result);
 };
 
-export const getNotificationHistory = async (params: {
-  type?: "monitor" | "agent";
-  targetId?: number;
-  status?: "success" | "failed";
-  limit?: number;
-  cursor?: number;
-}): Promise<{
-  data: components["schemas"]["NotificationHistory"][];
-  nextCursor: number | null;
-  hasMore: boolean;
-}> => {
-  const response = unwrapOpenApi(
-    await v2Client.GET("/api/v2/notifications/history", {
-      params: {
-        query: {
-          type: params.type,
-          target_id: params.targetId,
-          status: params.status,
-          limit: params.limit,
-          cursor: params.cursor,
-        },
-      },
-    })
-  );
-  return {
-    data: response.data,
-    nextCursor: response.next_cursor,
-    hasMore: response.has_more,
-  };
-};

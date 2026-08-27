@@ -62,18 +62,6 @@ function publicMetricArrays(
   };
 }
 
-function metricNumber(value: unknown): number | null {
-  return typeof value === "number" && Number.isFinite(value) ? value : null;
-}
-
-function metricText(value: unknown): string | null {
-  return typeof value === "string" ? value.slice(0, 512) : null;
-}
-
-function metricId(value: unknown): number | string {
-  return typeof value === "number" || typeof value === "string" ? value : "unknown";
-}
-
 function toLatestMetric(row: MetricRow | undefined, onInvalid: InvalidMetricHandler) {
   if (!row) return null;
   return {
@@ -95,12 +83,6 @@ function toLatestMetric(row: MetricRow | undefined, onInvalid: InvalidMetricHand
     month_rx: row.month_rx,
     month_tx: row.month_tx,
   };
-}
-
-function objectValue(value: unknown): Record<string, unknown> {
-  return value !== null && typeof value === "object" && !Array.isArray(value)
-    ? (value as Record<string, unknown>)
-    : {};
 }
 
 /**
@@ -180,7 +162,6 @@ export class D1StatusRepository implements StatusRepositoryPort {
 
   private async ensureConfig() {
     const nowMs = Date.now();
-    const now = new Date(nowMs).toISOString();
     await this.env.DB.prepare(
       `INSERT INTO status_pages
        (id, singleton_key, title, description, logo_url, custom_css, theme,

@@ -51,27 +51,6 @@ type PingResult struct {
 	Loss      bool    `json:"loss"`       // 超时/失败视为丢包
 }
 
-// Sample 为批量上报中的单个采集样本（只含动态指标，静态元数据由顶层承载）
-type Sample struct {
-	TS int64 `json:"ts"` // Unix 毫秒
-	DynamicMetrics
-}
-
-// NewSample 从一次完整采集中抽取动态指标生成样本
-func NewSample(info *SystemInfo) *Sample {
-	return &Sample{
-		TS:             info.Timestamp.UnixMilli(),
-		DynamicMetrics: info.DynamicMetrics,
-	}
-}
-
-// StatusReport 新协议上报体：顶层为最新一次采集（向后兼容旧服务端），
-// samples 为整个上报窗口内的全部样本（旧服务端会忽略该未知字段）。
-type StatusReport struct {
-	*SystemInfo
-	Samples []*Sample `json:"samples,omitempty"`
-}
-
 // AgentReportSample 是 v4 数据面的一条采样。时间使用带时区的 RFC3339，
 // 其余动态指标与采集模型共用同一组字段定义。
 type AgentReportSample struct {

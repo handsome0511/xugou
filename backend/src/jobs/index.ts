@@ -32,7 +32,6 @@ const DEFAULT_PROCESSED_EVENT_RETENTION_DAYS = 30;
 const DEFAULT_NOTIFICATION_EVENT_RETENTION_DAYS = 90;
 const SECURITY_RATE_LIMIT_RETENTION_DAYS = 7;
 
-
 // 统一的定时任务处理函数
 export const runScheduledTasks = async (
   event: ScheduledController,
@@ -42,7 +41,6 @@ export const runScheduledTasks = async (
   const nowMs = Number.isFinite(Number(event.scheduledTime))
     ? Number(event.scheduledTime)
     : Date.now();
-  const now = new Date(nowMs);
   let failures = 0;
 
   // 每个子任务都自己兜住异常：2026-08-12 的事故就是「库满 → monitorTask 抛异常 →

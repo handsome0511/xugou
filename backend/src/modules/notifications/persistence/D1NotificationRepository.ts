@@ -10,11 +10,7 @@ import type {
   NotificationResourceTarget,
 } from "../domain/models";
 import type { OrderedCursor } from "../../../shared/pagination/OrderedCursor";
-import {
-  D1NotificationChannelStore,
-  type ChannelRow,
-} from "./D1NotificationChannelStore";
-
+import { D1NotificationChannelStore } from "./D1NotificationChannelStore";
 
 type SettingRow = {
   id: number;
@@ -262,7 +258,6 @@ export class D1NotificationRepository implements NotificationRepositoryPort {
   async createChannel(input: NotificationChannelCommand) {
     let id: number | undefined;
     try {
-      const publicConfig = JSON.stringify({});
       const now = new Date().toISOString();
       const row = await this.env.DB.prepare(
         `INSERT INTO notification_channels

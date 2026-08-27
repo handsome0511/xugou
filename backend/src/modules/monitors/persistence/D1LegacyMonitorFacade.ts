@@ -1,10 +1,9 @@
 import type { Bindings } from "../../../models/db";
-import type { MonitorMutation, MonitorView } from "../domain/models";
+import type { MonitorMutation } from "../domain/models";
 import { createMonitorUseCases } from "../composition";
 
 const SINGLE_HISTORY_LIMIT = 1440;
 const ALL_HISTORY_LIMIT = 10_000;
-const LEGACY_MONITOR_LIST_LIMIT = 500;
 const DEFAULT_DAILY_STATS_DAYS = 90;
 const MAX_DAILY_STATS_DAYS = 366;
 
@@ -23,29 +22,6 @@ function parseHeaders(value: unknown): Record<string, string> {
       String(item),
     ])
   );
-}
-
-export function toLegacyMonitor(view: MonitorView) {
-  return {
-    id: view.id,
-    name: view.name,
-    url: view.url,
-    method: view.method,
-    interval: view.interval_seconds,
-    timeout: Math.max(1, Math.ceil(view.timeout_ms / 1000)),
-    timeout_ms: view.timeout_ms,
-    expected_status: view.expected_status,
-    headers: view.headers,
-    body: view.body ?? "",
-    active: view.active ? 1 : 0,
-    status: view.status,
-    response_time: view.response_time_ms,
-    last_checked: view.last_checked_at,
-    next_check_at: view.next_check_at,
-    sort_order: view.sort_order,
-    created_at: view.created_at,
-    updated_at: view.updated_at,
-  };
 }
 
 export function toMonitorMutation(input: {
@@ -70,43 +46,6 @@ export function toMonitorMutation(input: {
     body: input.body ?? null,
     active: input.active,
   };
-}
-
-export function toMonitorUpdate(input: Record<string, unknown>) {
-  const update: Partial<MonitorMutation> = {};
-  if (typeof input.name === "string") update.name = input.name;
-  if (typeof input.url === "string") update.url = input.url;
-  if (typeof input.method === "string") update.method = input.method.toUpperCase();
-  if (typeof input.interval === "number") update.interval_seconds = input.interval;
-  if (typeof input.timeout === "number") update.timeout_ms = input.timeout * 1000;
-  if (typeof input.expected_status === "number") {
-    update.expected_status = input.expected_status;
-  }
-  if (input.headers !== undefined) update.headers = parseHeaders(input.headers);
-  if (input.body === null || typeof input.body === "string") update.body = input.body;
-  if (typeof input.active === "boolean") update.active = input.active;
-  return update;
-}
-
-export async function listAllMonitors(env: Bindings) {
-  const rows: MonitorView[] = [];
-  let cursor: string | undefined;
-  do {
-    const remaining = LEGACY_MONITOR_LIST_LIMIT - rows.length;
-    const page = await createMonitorUseCases(env).list({
-      cursor,
-      limit: Math.min(100, remaining),
-    });
-    rows.push(...page.data.slice(0, remaining));
-    cursor = page.next_cursor ?? undefined;
-  } while (cursor !== undefined && rows.length < LEGACY_MONITOR_LIST_LIMIT);
-  return rows.sort(
-    (left, right) => left.sort_order - right.sort_order || left.id - right.id
-  );
-}
-
-export async function listLegacyMonitors(env: Bindings) {
-  return (await listAllMonitors(env)).map(toLegacyMonitor);
 }
 
 function historyCutoff() {

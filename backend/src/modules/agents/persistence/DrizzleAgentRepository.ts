@@ -1,15 +1,13 @@
-import { and, asc, eq, gt, isNull, notExists, or } from "drizzle-orm";
+import { and,  eq,  isNull } from "drizzle-orm";
 import type { AppDatabase } from "../../../config/db";
 import type { Bindings } from "../../../models/db";
 
-import { agentCredentials, agents } from "../../../db/schema";
+import { agentCredentials } from "../../../db/schema";
 import type { AgentRepositoryPort } from "../application/AgentUseCases";
 import type {
   AgentMutation,
-  AgentReportCommand,
-  AgentView,
-  AuthenticatedAgent,
-} from "../domain/models";
+  
+  AgentView } from "../domain/models";
 
 function parseStringArray(value: string | null): string[] {
   if (!value) return [];
@@ -21,15 +19,6 @@ function parseStringArray(value: string | null): string[] {
   } catch {
     return [];
   }
-}
-
-function parseTags(value: string | null): string[] {
-  return value
-    ? value
-        .split(",")
-        .map((tag) => tag.trim())
-        .filter(Boolean)
-    : [];
 }
 
 function iso(value: number | null) {
@@ -123,59 +112,6 @@ function targetView(row: TargetAgentRow): AgentView {
     sort_order: row.sort_order,
     created_at: iso(row.created_at_ms)!,
     updated_at: iso(row.updated_at_ms)!,
-  };
-}
-
-function tokenHint(token: string) {
-  return token.length > 12 ? `${token.slice(0, 4)}…${token.slice(-4)}` : "****";
-}
-
-function toView(row: typeof agents.$inferSelect): AgentView {
-  return {
-    id: row.id,
-    name: row.name,
-    status: row.status ?? "inactive",
-    hostname: row.hostname,
-    ip_addresses: parseStringArray(row.ip_addresses),
-    os: row.os,
-    version: row.version,
-    keepalive: row.keepalive,
-    boot_time: row.boot_time,
-    collect_interval_seconds: row.collect_interval ?? 1,
-    report_interval_seconds: row.report_interval ?? 60,
-    last_seen_at: row.last_seen_at,
-    next_offline_at: row.next_offline_at,
-    group_name: row.group_name,
-    tags: parseTags(row.tags),
-    price: row.price,
-    currency: row.currency,
-    billing_cycle: row.billing_cycle,
-    expire_date: row.expire_date,
-    auto_renewal: row.auto_renewal === 1,
-    is_hidden: row.is_hidden === 1,
-    traffic_limit_gb: row.traffic_limit_gb,
-    traffic_reset_day: row.traffic_reset_day ?? 1,
-    traffic_calc_type: row.traffic_calc_type ?? "sum",
-    auto_update: row.auto_update === 1,
-    region: row.region,
-    geo_latitude: row.geo_latitude,
-    geo_longitude: row.geo_longitude,
-    geo_city: row.geo_city,
-    geo_region_name: row.geo_region_name,
-    sort_order: row.sort_order ?? 0,
-    created_at: row.created_at,
-    updated_at: row.updated_at,
-  };
-}
-
-function toAuthenticated(row: typeof agents.$inferSelect): AuthenticatedAgent {
-  return {
-    id: row.id,
-    name: row.name,
-    status: row.status ?? "inactive",
-    collect_interval_seconds: row.collect_interval ?? 1,
-    report_interval_seconds: row.report_interval ?? 60,
-    auto_update: row.auto_update === 1,
   };
 }
 
@@ -419,6 +355,5 @@ export class DrizzleAgentRepository implements AgentRepositoryPort {
         }
       : null;
   }
-
 
 }

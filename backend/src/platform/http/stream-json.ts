@@ -27,15 +27,6 @@ export function streamJsonDataArrayResponse<
   return streamJsonArray(options, true);
 }
 
-/** 兼容旧导入器的根 JSON 数组，同时保持逐页背压输出。 */
-export function streamJsonArrayResponse<
-  T,
-  Cursor extends string | number,
-  Output = T,
->(options: StreamJsonArrayOptions<T, Cursor, Output>): Response {
-  return streamJsonArray(options, false);
-}
-
 function streamJsonArray<
   T,
   Cursor extends string | number,

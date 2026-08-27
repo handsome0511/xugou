@@ -1,4 +1,4 @@
-import { and, asc, eq, inArray, lte } from "drizzle-orm";
+import { and, asc, eq,  lte } from "drizzle-orm";
 import { createDb } from "../../config/db";
 import { domainOutbox } from "../../db/schema";
 import type { Bindings } from "../../models/db";
