@@ -1,8 +1,6 @@
 package config
 
 import (
-	"crypto/md5"
-	"encoding/hex"
 	"errors"
 	"fmt"
 	"os"
@@ -13,21 +11,17 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-// 上报请求头常量。SchemaVersion 与 MD5 头仍随每次上报发出，供服务端识别客户端
-// 声明的协议版本；v2/v3 那套 application/x-www-form-urlencoded 的配置串下发已被
-// 上报响应里的 JSON 取代，对应的 ParseRemoteConfig 与键白名单已删除。
+// v2/v3 那套 application/x-www-form-urlencoded 的配置协商已被上报响应里的 JSON
+// 取代，协议版本头、配置串 MD5 及其实现随之删除。只剩版本头仍随上报发出。
 const (
-	SchemaVersion      = 3
-	HeaderConfigSchema = "X-Agent-Config-Schema"
-	HeaderConfigMd5    = "X-Agent-Config-Md5"
-	// HeaderAgentVersion 上报请求携带的探针自身版本（服务端据此判断是否下发 update=1）
+	// HeaderAgentVersion 上报请求携带的探针自身版本，仅用于服务端日志可读性。
 	HeaderAgentVersion = "X-Agent-Version"
 
 	MinCollectInterval = 1
 	MaxCollectInterval = 3600
 	MinReportInterval  = 10
 	MaxReportInterval  = 3600
-	// 实时攒批间隔只是本地参数，不参与配置下发协议，因此不进规范化串与 MD5。
+	// 实时攒批间隔是纯本地参数，不参与服务端下发的配置。
 	MinLiveInterval = 1
 	MaxLiveInterval = 300
 )
@@ -104,27 +98,6 @@ func ValidateLiveInterval(live int) error {
 		return fmt.Errorf("live_interval 超出值域 [%d, %d]: %d", MinLiveInterval, MaxLiveInterval, live)
 	}
 	return nil
-}
-
-// NormalizedConfigString 生成规范化配置串。键按固定顺序、分隔符不可变，
-// 服务端会回填客户端声明的 schema_version 对同一格式计算 MD5，两侧必须逐字节一致。
-// update 指令键刻意排除在规范化串之外（仅指令通道，不参与 MD5 协商）。
-func NormalizedConfigString(collect, report int) string {
-	return fmt.Sprintf(
-		"collect_interval=%d&report_interval=%d&schema_version=%d",
-		collect, report, SchemaVersion,
-	)
-}
-
-// MD5Hex 计算字符串的 MD5 十六进制小写摘要
-func MD5Hex(s string) string {
-	sum := md5.Sum([]byte(s))
-	return hex.EncodeToString(sum[:])
-}
-
-// CurrentConfigMD5 计算当前内存配置的规范化 MD5（随配置热更新自动变化）
-func CurrentConfigMD5() string {
-	return MD5Hex(NormalizedConfigString(CollectInterval, ReportInterval))
 }
 
 // PersistIntervals 将采集/上报间隔原子写入 YAML 配置文件：

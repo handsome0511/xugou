@@ -11,7 +11,6 @@ import (
 	"log"
 	"net/http"
 	"net/url"
-	"strconv"
 	"strings"
 	"time"
 
@@ -27,10 +26,14 @@ func setDefaultHeaders(req *http.Request) {
 	req.Header.Set("Referer", "https://www.google.com/")
 }
 
-// setConfigHeaders 上报请求附带配置协议头：协议版本 + 本地配置规范化串的 MD5 + 探针版本
-func setConfigHeaders(req *http.Request) {
-	req.Header.Set(config.HeaderConfigSchema, strconv.Itoa(config.SchemaVersion))
-	req.Header.Set(config.HeaderConfigMd5, config.CurrentConfigMD5())
+// setAgentVersionHeader 上报请求附带探针版本。
+//
+// 这里曾经还发 X-Agent-Config-Schema 与 X-Agent-Config-Md5，用于 v2/v3 的配置
+// 协商；协商本身在 v4 就被上报响应里的 JSON 取代了，服务端此后再没读过这两个头，
+// 探针却仍在每次上报前算一次配置串的 MD5。头和 MD5 实现已一并删除。
+// 版本头保留：服务端虽然也不读（它从上报 body 的 agent_version 取版本），
+// 但它在 Cloudflare 请求日志里直接可见，是排查探针版本的第一手信息。
+func setAgentVersionHeader(req *http.Request) {
 	if config.AgentVersion != "" {
 		req.Header.Set(config.HeaderAgentVersion, config.AgentVersion)
 	}
@@ -120,7 +123,7 @@ func (r *DefaultReporter) Report(ctx context.Context, report *model.AgentReport)
 		return nil, err
 	}
 	setDefaultHeaders(req)
-	setConfigHeaders(req)
+	setAgentVersionHeader(req)
 	req.Header.Set("Authorization", "Bearer "+r.reporter.ApiToken)
 	req.Header.Set("Content-Encoding", "gzip")
 	req.Header.Set("Accept", "application/json")
