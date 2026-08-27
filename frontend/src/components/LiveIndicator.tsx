@@ -2,19 +2,19 @@ import { useTranslation } from "react-i18next";
 
 interface LiveIndicatorProps {
   connected: boolean;
-  /** 最近样本的回放滞后（秒）；>2s 时在 live 后追加 (+Ns) 标记 */
-  lagSeconds?: number;
 }
 
 /**
  * WebSocket 连接状态小指示（终端风格）：● live / - offline
- * 连接正常但样本滞后 >2s 时显示 ● live (+Ns)
+ *
+ * 刻意不显示样本滞后秒数。探针按 live-interval（默认 12 秒）攒批上行，
+ * 一批里的样本会被回放摊开，滞后天然在 0 到十几秒之间来回摆；无人订阅时
+ * 探针还会暂停推流，滞后会更大。把这个数字放出来只会不停跳动，
+ * 既不代表故障也不代表健康。连接状态是二元的，指示也就该是二元的。
  */
-const LiveIndicator = ({ connected, lagSeconds }: LiveIndicatorProps) => {
+const LiveIndicator = ({ connected }: LiveIndicatorProps) => {
   const { t } = useTranslation();
   const label = connected ? t("live.connected") : t("live.disconnected");
-  const showLag =
-    connected && typeof lagSeconds === "number" && lagSeconds > 2;
 
   return (
     <span
@@ -26,12 +26,6 @@ const LiveIndicator = ({ connected, lagSeconds }: LiveIndicatorProps) => {
       aria-live="polite"
     >
       {connected ? "●" : "-"} {label}
-      {showLag && (
-        <span style={{ color: "var(--text-secondary)" }}>
-          {" "}
-          (+{Math.floor(lagSeconds)}s)
-        </span>
-      )}
     </span>
   );
 };

@@ -39,7 +39,6 @@ const Dashboard = () => {
     liveMetrics,
     liveStatus,
     connected: liveConnected,
-    lagSeconds: liveLagSeconds,
   } = useLiveAgentMetrics(agentIds);
 
   const agents = useMemo(
@@ -275,10 +274,7 @@ const Dashboard = () => {
         }
         titleExtra={
           baseAgents.length > 0 ? (
-            <LiveIndicator
-              connected={liveConnected}
-              lagSeconds={liveLagSeconds}
-            />
+            <LiveIndicator connected={liveConnected} />
           ) : undefined
         }
         storageKey="dashboard_agent_view"

@@ -20,7 +20,6 @@ export interface LiveAgentMetrics {
     { status?: LiveAgentStatus; lastSeenAt?: string | null }
   >;
   connected: boolean;
-  lagSeconds: number;
   /** 把某个 agent 的基线指标与实时增量合并；没有实时数据时原样返回 */
   merge: (
     agentId: number,
@@ -37,7 +36,6 @@ export interface LiveAgentMetrics {
 export function useLiveAgentMetrics(agentIds: number[]): LiveAgentMetrics {
   const [liveState, setLiveState] = useState<Record<number, LiveAgentState>>({});
   const [connected, setConnected] = useState(false);
-  const [lagSeconds, setLagSeconds] = useState(0);
 
   // 用 id 列表的字符串形式做依赖，避免每次渲染新建数组导致反复重连
   const subscriptionKey = useMemo(
@@ -50,7 +48,7 @@ export function useLiveAgentMetrics(agentIds: number[]): LiveAgentMetrics {
     if (!subscriptionKey) return;
     const socket = createLiveSocket({
       subscribe: subscriptionKey.split(",").map(Number),
-      onUpdate: ({ agentId, ts, data, status, lastSeenAt, lagSeconds: lag }) => {
+      onUpdate: ({ agentId, ts, data, status, lastSeenAt }) => {
         setLiveState((current) => {
           const previous = current[agentId];
           // 乱序到达的旧样本不能覆盖新样本
@@ -66,7 +64,6 @@ export function useLiveAgentMetrics(agentIds: number[]): LiveAgentMetrics {
             },
           };
         });
-        setLagSeconds(lag);
       },
       onStatusChange: ({ connected: isConnected }) => setConnected(isConnected),
     });
@@ -107,5 +104,5 @@ export function useLiveAgentMetrics(agentIds: number[]): LiveAgentMetrics {
     [liveMetrics]
   );
 
-  return { liveMetrics, liveStatus, connected, lagSeconds, merge };
+  return { liveMetrics, liveStatus, connected, merge };
 }

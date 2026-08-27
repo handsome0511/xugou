@@ -89,8 +89,6 @@ const AgentDetail = () => {
     null
   );
   const [liveConnected, setLiveConnected] = useState(false);
-  // 最近一次 WS 样本的回放滞后（秒），>2s 时 LiveIndicator 显示 (+Ns)
-  const [liveLagSeconds, setLiveLagSeconds] = useState(0);
   const { t } = useTranslation();
 
   const agentId = Number(id);
@@ -102,10 +100,9 @@ const AgentDetail = () => {
     setLiveMetric(null);
     const socket = createLiveSocket({
       subscribe: agentId,
-      onUpdate: ({ agentId: updatedId, data, lagSeconds }) => {
+      onUpdate: ({ agentId: updatedId, data }) => {
         if (updatedId !== agentId) return;
         setLiveMetric((prev) => ({ ...prev, ...data }));
-        setLiveLagSeconds(lagSeconds);
       },
       onStatusChange: ({ connected }) => setLiveConnected(connected),
     });
@@ -330,7 +327,7 @@ const AgentDetail = () => {
               ? t("agent.status.online")
               : t("agent.status.offline")}
           </Badge>
-          <LiveIndicator connected={liveConnected} lagSeconds={liveLagSeconds} />
+          <LiveIndicator connected={liveConnected} />
         </Flex>
         <Flex gap="2">
           <Button

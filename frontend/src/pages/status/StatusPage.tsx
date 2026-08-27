@@ -41,7 +41,6 @@ const StatusPage = () => {
   const [cardLoading, setCardLoading] = useState(false);
   const [liveState, setLiveState] = useState<Record<number, StatusLiveState>>({});
   const [liveConnected, setLiveConnected] = useState(false);
-  const [liveLagSeconds, setLiveLagSeconds] = useState(0);
   const statusQuery = useQuery({
     queryKey: ["status", "public"],
     queryFn: ({ signal }) => getStatusPageData(signal),
@@ -77,7 +76,7 @@ const StatusPage = () => {
     const socket = createLiveSocket({
       subscribe: agentSubscriptionKey.split(",").map(Number),
       path: "/api/v2/status/public/ws",
-      onUpdate: ({ agentId, ts, data, status, lastSeenAt, lagSeconds }) => {
+      onUpdate: ({ agentId, ts, data, status, lastSeenAt }) => {
         setLiveState((current) => {
           const previous = current[agentId];
           if (previous && previous.ts > ts) return current;
@@ -92,7 +91,6 @@ const StatusPage = () => {
             },
           };
         });
-        setLiveLagSeconds(lagSeconds);
       },
       onStatusChange: ({ connected }) => setLiveConnected(connected),
     });
@@ -223,10 +221,7 @@ const StatusPage = () => {
                 </>
               }
               titleExtra={
-                <LiveIndicator
-                  connected={liveConnected}
-                  lagSeconds={liveLagSeconds}
-                />
+                <LiveIndicator connected={liveConnected} />
               }
               storageKey="status_agent_view"
               onSelectAgent={handleAgentSelect}

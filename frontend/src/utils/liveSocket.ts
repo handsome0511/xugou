@@ -31,8 +31,6 @@ export interface LiveUpdate {
   data: Partial<MetricHistory>;
   status?: LiveAgentStatus;
   lastSeenAt?: string | null;
-  /** 回放滞后（秒）：emit 时刻与样本 ts 的差值，用于 UI 滞后标记 */
-  lagSeconds: number;
 }
 
 export interface CreateLiveSocketOptions {
@@ -187,7 +185,6 @@ export function createLiveSocket(options: CreateLiveSocketOptions): LiveSocket {
   };
 
   const emitUpdate = (sample: ReplaySample, agentId: number) => {
-    const lagSeconds = Math.max(0, (Date.now() - sample.ts) / 1000);
     const timestamp = new Date(sample.ts).toISOString();
     onUpdate?.({
       agentId,
@@ -195,7 +192,6 @@ export function createLiveSocket(options: CreateLiveSocketOptions): LiveSocket {
       data: { ...sample.data, timestamp: sample.data.timestamp ?? timestamp },
       status: sample.status,
       lastSeenAt: sample.lastSeenAt,
-      lagSeconds,
     });
   };
 
