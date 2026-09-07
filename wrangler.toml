@@ -1,4 +1,4 @@
-name = "xugou-app"
+name = "xugou"
 main = "backend/src/index.ts"
 compatibility_date = "2026-08-01"
 compatibility_flags = ["nodejs_compat"]
@@ -75,7 +75,7 @@ migrations_dir = "backend/drizzle"
 
 # Queue 只承载状态变化、通知和合并后的状态页重建等低频 Outbox。
 [[queues.producers]]
-binding = "XUGOU_JOBS"
+binding = "JOBS_QUEUE"
 queue = "xugou-jobs"
 
 [[queues.consumers]]
