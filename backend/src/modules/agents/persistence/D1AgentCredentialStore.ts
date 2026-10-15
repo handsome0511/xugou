@@ -2,11 +2,11 @@ import type { Agent } from "../../../models/agent";
 import type { Bindings } from "../../../models/db";
 import { generateSecureToken, hmacSha256Hex } from "../../../utils/crypto";
 import { getEnvNumber } from "../../../utils/env";
+import { shouldTouchCredential } from "../domain/credential-usage";
 
 
 const MIN_PEPPER_LENGTH = 32;
 const DEFAULT_ENROLLMENT_TTL_MINUTES = 30;
-const CREDENTIAL_TOUCH_INTERVAL_MS = 5 * 60 * 1000;
 export const MAX_ACTIVE_AGENT_CREDENTIALS = 5;
 const MAX_AGENT_CREDENTIAL_PAGE_SIZE = 100;
 
@@ -142,17 +142,13 @@ export async function authenticateAgentToken(env: Bindings, token: string) {
   if (credential) {
     const agent = await findActiveAgent(env, Number(credential.agent_id));
     if (!agent) return null;
-    const lastUsedAt = Date.parse(String(credential.last_used_at ?? ""));
-    if (
-      !Number.isFinite(lastUsedAt) ||
-      Date.now() - lastUsedAt >= CREDENTIAL_TOUCH_INTERVAL_MS
-    ) {
+    if (shouldTouchCredential(credential.last_used_at, Date.now())) {
       const now = new Date().toISOString();
       await env.DB.prepare(
         `UPDATE agent_credentials SET last_used_at = ?, updated_at = ?
-         WHERE id = ? AND revoked_at IS NULL`
+         WHERE id = ? AND revoked_at IS NULL AND last_used_at IS ?`
       )
-        .bind(now, now, credential.id)
+        .bind(now, now, credential.id, credential.last_used_at)
         .run();
     }
     return agent;

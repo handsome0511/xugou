@@ -53,6 +53,11 @@ jobs:
             --output ../.wrangler.production.toml
       - name: Build production bundle
         run: pnpm run build
+      - name: Validate code and regression tests
+        run: |
+          pnpm run lint
+          pnpm run typecheck
+          pnpm --dir backend test
       - name: Verify reproducible Git input
         run: test -z "$(git status --porcelain)"
       - name: Apply D1 migrations

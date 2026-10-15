@@ -1,0 +1,2 @@
+DROP INDEX `monitor_check_rollups_monitor_bucket_idx`;--> statement-breakpoint
+CREATE INDEX `monitor_check_rollups_size_monitor_bucket_idx` ON `monitor_check_rollups` (`bucket_size_seconds`,`monitor_id`,`bucket_start`);

@@ -3,6 +3,7 @@ import type { AppDatabase } from "../../../config/db";
 import type { Bindings } from "../../../models/db";
 
 import { agentCredentials } from "../../../db/schema";
+import { shouldTouchCredential } from "../domain/credential-usage";
 import type { AgentRepositoryPort } from "../application/AgentUseCases";
 import type {
   AgentMutation,
@@ -304,7 +305,11 @@ export class DrizzleAgentRepository implements AgentRepositoryPort {
     now: string;
   }) {
     const credentials = await this.db
-      .select({ id: agentCredentials.id, agent_id: agentCredentials.agent_id })
+      .select({
+        id: agentCredentials.id,
+        agent_id: agentCredentials.agent_id,
+        last_used_at: agentCredentials.last_used_at,
+      })
       .from(agentCredentials)
       .where(
         and(
@@ -314,14 +319,8 @@ export class DrizzleAgentRepository implements AgentRepositoryPort {
       )
       .limit(1);
 
-    let agentId = credentials[0]?.agent_id;
-    if (credentials[0]) {
-      await this.db
-        .update(agentCredentials)
-        .set({ last_used_at: input.now, updated_at: input.now })
-        .where(eq(agentCredentials.id, credentials[0].id));
-    }
-    if (agentId === undefined) return null;
+    const credential = credentials[0];
+    if (!credential) return null;
     const row = await this.env.DB.prepare(
       `SELECT n.id, n.name, r.status, n.collect_interval_ms,
               n.report_interval_ms, n.auto_update
@@ -329,7 +328,7 @@ export class DrizzleAgentRepository implements AgentRepositoryPort {
        JOIN agent_runtime r ON r.agent_id = n.id
        WHERE n.id = ? AND n.deleted_at_ms IS NULL LIMIT 1`
     )
-      .bind(agentId)
+      .bind(credential.agent_id)
       .first<{
         id: number;
         name: string;
@@ -338,6 +337,21 @@ export class DrizzleAgentRepository implements AgentRepositoryPort {
         report_interval_ms: number;
         auto_update: number;
       }>();
+    if (row && shouldTouchCredential(credential.last_used_at, Date.parse(input.now))) {
+      // Compare-and-set：重叠的上报/实时连接认证只更新一次，且不会触碰已撤销凭据。
+      await this.db
+        .update(agentCredentials)
+        .set({ last_used_at: input.now, updated_at: input.now })
+        .where(
+          and(
+            eq(agentCredentials.id, credential.id),
+            isNull(agentCredentials.revoked_at),
+            credential.last_used_at === null
+              ? isNull(agentCredentials.last_used_at)
+              : eq(agentCredentials.last_used_at, credential.last_used_at)
+          )
+        );
+    }
     return row
       ? {
           id: row.id,

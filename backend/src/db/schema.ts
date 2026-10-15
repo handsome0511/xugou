@@ -594,7 +594,10 @@ export const monitorCheckRollups = sqliteTable(
     monitorBucketUniqueIdx: uniqueIndex(
       "monitor_check_rollups_monitor_bucket_unique_idx"
     ).on(table.monitor_id, table.bucket_start, table.bucket_size_seconds),
-    monitorBucketIdx: index("monitor_check_rollups_monitor_bucket_idx").on(
+    // 先按粒度和 Monitor 等值定位，再走时间范围；避免日统计扫描同窗口的五分钟行。
+    // 原 (monitor_id, bucket_start) 已被上面的唯一索引覆盖，替换而非叠加索引。
+    sizeMonitorBucketIdx: index("monitor_check_rollups_size_monitor_bucket_idx").on(
+      table.bucket_size_seconds,
       table.monitor_id,
       table.bucket_start
     ),
